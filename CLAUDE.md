@@ -64,10 +64,12 @@ One file: `index.html`.
   - They keep clear of airports (r + 750), lakes and the road.
   - `terrainHeight(x,z)` = max over mountains of `h·(1 − d/(1.05 r))`, otherwise 0.
 - Scenery placement uses `blockedForScenery()`:
-  - ~1100 instanced trees.
-  - 120 textured field patches.
+  - Instanced trees (`GFX.trees`, 450–1700 by tier).
+  - Textured field patches (`GFX.fields`, 60–160).
+  - Clouds (`GFX.clouds`, 35–110): each cloud is ONE mesh with its puffs merged into one geometry.
 - Each airport has:
-  - Runway texture, markings, numbers, edge and threshold lights.
+  - Runway texture, numbers.
+  - Paint markings, edge and threshold lights as `InstancedMesh` (`instanced()` + `flatMatrix()` on `GEO.unitPlane`). The road dashes use the same approach.
   - Tower, hangar, apron.
   - A world-space windsock (`socks[]`).
 - An autonomous truck drives back and forth on the road.
@@ -183,6 +185,24 @@ One file: `index.html`.
 - Fixed step: an accumulator runs `physicsStep(1/120)` (simT + updatePlane), max 12 steps per frame. When `RP.active`, `replayUpdate` runs instead. `recordTick` runs after the physics steps.
 - Rendering interpolates the plane pose between the last two physics steps and restores the true pose right after `render`. Interpolation is skipped if the plane moved > 30 m (teleport).
 
+**Graphics quality / GPU adaptation** (block right after `DB`, before the state objects)
+- `GPU` (IIFE at load): probes a WebGL context with `powerPreference: 'high-performance'` and reads `WEBGL_debug_renderer_info`. A second context with `failIfMajorPerformanceCaveat` detects software rendering. It then calls `classifyGPU(name, {mobile, software})` → `low | medium | high | ultra`, and drops one tier if `deviceMemory ≤ 2` or there are ≤ 2 cores.
+- Rough tier mapping:
+  - SwiftShader / llvmpipe / old Intel HD / Mali-G5x / Adreno ≤ 5xx → low.
+  - Intel UHD/Iris, Radeon integrated, recent mobile → medium.
+  - GeForce / Radeon RX / Apple M → high.
+  - RTX x060+ / RX x700+ / M Max → ultra.
+- `GFX_TIERS[tier]` = `{pr, prMin, aa, shadows, shadowSize, soft, box, aniso, trees, fields, clouds, puffs}`. `GFX` is the resolved tier, available as a global (the combat extension reads `GFX.puffs`).
+- Choice: `DB.settings.gfx` (`'auto'` or a tier id). The `?gfx=` URL parameter overrides it, which still works when localStorage is blocked. `setGfx(id)` confirms with the user, then reloads the page, because scene counts and MSAA are fixed at init.
+- Renderer: `antialias: GFX.aa`, `powerPreference: 'high-performance'` (selects the discrete GPU on dual-GPU laptops). Shadows are off on low; PCF on medium, PCFSoft above. Anisotropy is capped by `GFX.aniso`. The shadow box is ±`GFX.box` m.
+- Dynamic resolution (`DYN`, `updateDynRes(raw dt)`, toggle `DB.settings.dynRes`):
+  - It measures fps over 1.5 s windows.
+  - Below 48 fps it lowers the pixel ratio, down to `GFX.prMin`.
+  - Above 58 fps it raises it back toward `min(devicePixelRatio, GFX.pr)`, with an 8 s hold after any drop.
+  - It warns once (toast) if the game stays under 25 fps at the floor.
+- `webglcontextlost` is `preventDefault`ed; `webglcontextrestored` reloads the page.
+- UI: the "Graphismes" block in the T window (`renderGfx`) shows tier buttons, the dynamic-resolution toggle, and the GPU, shadows, MSAA, resolution and fps.
+
 **Cameras**
 - `chaseCam` (Poursuite): critically damped spring on the camera *offset* (so no lag at high speed), look-ahead, follows 28 % of the bank, FOV 60→82 with speed (+7 with afterburner), shake at high speed or high g.
 - `cineCam` (Cinéma): auto director cycling `SHOTS` (chase, flyby, orbit, track, front, ground) every 5–8 s.
@@ -205,7 +225,7 @@ One file: `index.html`.
 DB = {
   flights[],
   best{maxAlt, maxSpeed, longest, softest},
-  settings{invert, sound, ac, wx{preset, from, base, gust, turb}},
+  settings{invert, sound, ac, gfx, dynRes, wx{preset, from, base, gust, turb}},
   combat{unlocked, best{levelId: {score, stars, time, ac}}, ac}
 }
 ```
@@ -254,7 +274,9 @@ DB = {
 - localStorage is blocked in claude.ai artifact previews. Records then live only for the session; Export works.
 - `setAircraft` refuses while airborne. `startLevel` works around this by setting `S.crashed = true` before switching.
 - Two `keydown` listeners exist (main + combat). Tab needs `preventDefault`; inputs and selects are ignored.
-- Enemy/particle systems create a material per puff (capped at 700 puffs). Watch performance if you add more effects.
+- Enemy/particle systems create a material per puff (capped at `GFX.puffs`, 250–900). Watch performance if you add more effects.
+- New static scenery should respect the `GFX` budgets. Batch repeated small meshes with `instanced()`, because draw calls are the main cost: about 155 per frame versus about 500 before batching.
+- `GFX`, `GPU` and `DB` are read before `init()`. `DYN` is declared next to `animate` and must exist before `init()` runs.
 - `center(e)` and the temp vectors are shared; clone them before storing.
 
 ## 11. Suggested next steps for Claude Code
