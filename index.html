@@ -1027,6 +1027,135 @@
       }
     }
 
+    /* Enregistrement, rejeu, commandes tactiles */
+    .tbtn.on {
+      border-color: var(--green);
+      color: var(--green)
+    }
+
+    .touchonly,
+    #touchPad,
+    #rpBar,
+    #recBadge {
+      display: none
+    }
+
+    #recBadge.on {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      top: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 5px 12px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      color: var(--red);
+      z-index: 15
+    }
+
+    #recBadge i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: recblink 1s steps(2) infinite
+    }
+
+    @keyframes recblink {
+      50% {
+        opacity: .2
+      }
+    }
+
+    body.replay #rpBar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      top: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 10px;
+      width: min(760px, calc(100vw - 24px));
+      z-index: 25
+    }
+
+    #rpBar .rptag {
+      color: var(--cyan);
+      font-weight: 700;
+      letter-spacing: .12em;
+      white-space: nowrap
+    }
+
+    #rpBar b {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px
+    }
+
+    #rpBar input {
+      flex: 1;
+      min-width: 60px
+    }
+
+    #rpBar .val {
+      font-size: 12px;
+      white-space: nowrap
+    }
+
+    body.replay #pfd,
+    body.replay #nav,
+    body.replay #help,
+    body.replay #touchPad {
+      opacity: .35;
+      pointer-events: none
+    }
+
+    body.touch .touchonly {
+      display: flex
+    }
+
+    body.touch #touchPad {
+      display: grid;
+      grid-template-columns: repeat(2, 72px);
+      gap: 6px;
+      right: 12px;
+      bottom: 12px;
+      padding: 8px;
+      z-index: 20
+    }
+
+    #touchPad button {
+      height: 48px;
+      border-radius: 8px;
+      border: 1px solid var(--line2);
+      background: rgba(255, 255, 255, .06);
+      color: var(--txt);
+      font: 600 14px var(--ui);
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none
+    }
+
+    #touchPad button.down {
+      background: rgba(90, 209, 255, .3);
+      border-color: var(--cyan)
+    }
+
+    #touchPad button.rec {
+      color: var(--red)
+    }
+
+    body.touch #toasts {
+      bottom: auto;
+      top: 72px
+    }
+
+    body.touch #gl {
+      touch-action: none
+    }
+
     @media (max-width:1150px) {
       #sys {
         display: none
@@ -1100,6 +1229,12 @@
       <button class="tbtn" data-act="cam" title="Caméra"><svg viewBox="0 0 24 24">
           <path d="M4 8h3l2-2h6l2 2h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
         </svg><span id="camName">Poursuite</span><kbd>C</kbd></button>
+      <button class="tbtn" data-act="rec" title="Enregistrer le trajet"><svg viewBox="0 0 24 24">
+          <path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" />
+        </svg><span>Enreg.</span><kbd>K</kbd></button>
+      <button class="tbtn touchonly" id="tiltBtn" data-act="tilt" title="Piloter en inclinant l'appareil"><svg viewBox="0 0 24 24">
+          <path d="M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2M3 9a9 9 0 0 1 2-4M21 9a9 9 0 0 0-2-4" />
+        </svg><span>Inclinaison</span></button>
       <button class="tbtn" data-act="sound" title="Son"><svg viewBox="0 0 24 24">
           <path d="M4 9h4l5-4v14l-5-4H4zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />
         </svg><span id="sndName">Son</span><kbd>N</kbd></button>
@@ -1233,6 +1368,10 @@
         <td>Caméra · Son · Inverser</td>
       </tr>
       <tr>
+        <td><kbd>K</kbd></td>
+        <td>Enregistrer le trajet (rejeu : L)</td>
+      </tr>
+      <tr>
         <td><kbd>Échap</kbd> · <kbd>R</kbd></td>
         <td>Pause · Recommencer</td>
       </tr>
@@ -1324,6 +1463,29 @@
       <div id="dBody"></div>
       <div class="cfoot right" id="dBtns"></div>
     </div>
+  </div>
+
+  <div id="recBadge" class="glass"><i></i>REC <span class="val" id="recTime">00:00</span></div>
+
+  <div id="rpBar" class="glass">
+    <span class="rptag">▶ REJEU</span><b id="rpName"></b>
+    <button class="btn" id="rpPlay" title="Lecture / pause (Espace)">❚❚</button>
+    <input type="range" id="rpSeek" min="0" max="1000" value="0" title="Avancer / reculer (← →)">
+    <span class="val" id="rpTime">00:00 / 00:00</span>
+    <button class="btn" id="rpRate" title="Vitesse (↑ ↓)">×1</button>
+    <button class="btn" id="rpCam" title="Caméra (C)">Caméra</button>
+    <button class="btn" id="rpExit" title="Quitter (Échap)">✕</button>
+  </div>
+
+  <div id="touchPad" class="glass">
+    <button data-hold="z">Gaz +</button>
+    <button data-hold="s">Gaz −</button>
+    <button data-hold="a">◀ Pal.</button>
+    <button data-hold="e">Pal. ▶</button>
+    <button data-hold=" ">Freins</button>
+    <button data-tap="gear">Train</button>
+    <button data-tap="cal">Calibrer</button>
+    <button data-tap="rec" class="rec">● REC</button>
   </div>
 
   <div id="toasts"></div>
@@ -1447,13 +1609,13 @@
       ctl: { p: 0, r: 0, y: 0 }, gearPos: 1, gearTarget: 1, reverse: false,
       wAir: 0, wave: 0, turbLevel: 0, head: 0, cross: 0, drift: 0, windSpd: 0, windFrom: 0,
       vel: new THREE.Vector3(), prevVel: new THREE.Vector3(),
-      va: new THREE.Vector3(), stalled: false, stallWarn: false, vsEff: AC.stall   // vitesse air (vecteur), décrochage
+      va: new THREE.Vector3(), qr: 0, stalled: false, stallWarn: false, vsEff: AC.stall   // vitesse air (vecteur), décrochage
     };
     const mission = { active: false, from: 'VAL', to: 'NOR', wps: [], idx: 0, started: false, elapsed: 0, dist: 0, total: 0 };
     const plan = { from: 'VAL', to: 'NOR', wps: [] };
     const NAV = {};
     const truckState = { dir: 1, speed: 20 };
-    const CAMS = ['Poursuite', 'Cockpit', 'Latérale'];
+    const CAMS = ['Poursuite', 'Cockpit', 'Latérale', 'Cinéma'];
     let snapCamera = true, radarRange = 2, hudT = 0, beepT = 0, hornT = 0, trailT = 0, simT = 0, lastAlerts = '';
     let turbV = 0, turbR = 0, turbP = 0;
     const clock = new THREE.Clock();
@@ -2078,7 +2240,8 @@
       const dn = (...ks) => ks.some(k => keys[k]);
       let pitchIn = (dn('arrowdown', '5') ? 1 : 0) - (dn('arrowup', '8') ? 1 : 0);   // +1 = cabrer
       if (S.invert) pitchIn = -pitchIn;
-      const rollIn = (dn('arrowright', '6') ? 1 : 0) - (dn('arrowleft', '4') ? 1 : 0);
+      let rollIn = (dn('arrowright', '6') ? 1 : 0) - (dn('arrowleft', '4') ? 1 : 0);
+      if (TILT.on) { if (!pitchIn) pitchIn = TILT.p; if (!rollIn) rollIn = TILT.r; }   // inclinaison de l'appareil (analogique)
       const yawIn = (dn('a', 'q') ? 1 : 0) - (dn('d', 'e') ? 1 : 0);
       S.ctl.p = ctlStep(S.ctl.p, pitchIn, dt);
       S.ctl.r = ctlStep(S.ctl.r, rollIn, dt);
@@ -2126,7 +2289,7 @@
         plane.position.x += Math.sin(S.heading) * S.roll * dt;
         plane.position.z += Math.cos(S.heading) * S.roll * dt;
         plane.position.y = GEAR;
-        S.vsEff = AC.stall; S.stalled = S.stallWarn = false;
+        S.vsEff = AC.stall; S.qr = 0; S.stalled = S.stallWarn = false;
         if (pitchIn > 0 && S.speed >= AC.vr && !S.reverse) {
           S.onGround = false; S.vy = 1.5; plane.rotateX(-0.08);
           S.va.set(fx * S.roll - windNow.x, S.vy, fz * S.roll - windNow.z);   // vitesse air = vitesse sol − vent
@@ -2135,7 +2298,10 @@
       } else {
         S.reverse = false;
         const auth = clamp(S.speed / AC.vr, 0.25, 1);
-        plane.rotateX(-S.ctl.p * AC.pitch * auth * dt);
+        // Limiteur d'incidence : avec de l'énergie (q > q décrochage), tirer à fond ne décroche pas ; à basse vitesse, si
+        const aLim = clamp((Math.abs(S.aoa) * DEG - (ALPHA_STALL - 3 * DEG)) / (3 * DEG), 0, 1) * clamp(S.qr - 1, 0, 1);
+        const pCmd = S.ctl.p * (Math.sign(S.ctl.p) === Math.sign(S.aoa) ? 1 - aLim : 1);
+        plane.rotateX(-pCmd * AC.pitch * auth * dt);
         plane.rotateZ(S.ctl.r * AC.roll * auth * dt);
         plane.rotateY(S.ctl.y * AC.yaw * auth * dt);
         // Stabilité : retour aux ailes à plat et à une trajectoire horizontale quand les commandes sont relâchées
@@ -2186,14 +2352,14 @@
         // Stabilité de girouette : le nez s'aligne sur le vent relatif (dérapage, décrochage)
         const wc = 1.2 * clamp(qr, 0.3, 3);
         plane.rotateY(-beta * wc * dt);
-        S.stalled = Math.abs(alpha) > ALPHA_STALL;
-        if (S.stalled) plane.rotateX(clamp((alpha - Math.sign(alpha) * ALPHA_STALL) * wc, -3, 3) * dt);
+        S.stalled = Math.abs(alpha) > (S.stalled ? ALPHA_STALL - 4 * DEG : ALPHA_STALL);   // hystérésis
+        if (S.stalled) plane.rotateX(clamp((alpha - Math.sign(alpha) * (ALPHA_STALL - 6 * DEG)) * wc, -3, 3) * dt);
         // Rafales : l'inertie conserve la vitesse sol, la vitesse air encaisse la variation du vent
         S.va.x -= windNow.x - windPrev.x; S.va.z -= windNow.z - windPrev.z;
         S.speed = S.va.length();
         vF.set(0, 0, 1).applyQuaternion(plane.quaternion);
         S.vy = S.va.y - vF.y * S.speed;                      // composante verticale hors axe du nez
-        S.aoa = alpha / DEG;
+        S.aoa = alpha / DEG; S.qr = qr;
         S.vsEff = AC.stall / Math.sqrt(sigma);
         S.stallWarn = alpha > ALPHA_STALL - 3 * DEG || qr < 1.05;
         // Déplacement = vitesse air + vent + mouvement vertical de la masse d'air
@@ -2450,12 +2616,12 @@
     // ════════════════════════ Caméra & monde ════════════════════════
     function updateCamera(dt) {
       const k = snapCamera ? 1 : 1 - Math.exp(-dt * 6);
-      if (S.cam === 0) {
-        tmpV.copy(camOffset).applyQuaternion(plane.quaternion).add(plane.position);
-        camera.position.lerp(tmpV, k); camera.position.y = Math.max(camera.position.y, 1.5);
-        camera.up.set(0, 1, 0);
-        camera.lookAt(tmpV.copy(lookOffset).applyQuaternion(plane.quaternion).add(plane.position));
-      } else if (S.cam === 1) {
+      if (S.cam === 0 || S.cam === 3) {
+        if (S.cam === 0) chaseCam(dt, snapCamera); else cineCam(dt);
+        snapCamera = false; return;
+      }
+      setFov(65, dt, snapCamera);
+      if (S.cam === 1) {
         camera.position.copy(cockpitPos).applyQuaternion(plane.quaternion).add(plane.position);
         camera.quaternion.copy(plane.quaternion).multiply(qFlip);
       } else {
@@ -2809,7 +2975,7 @@
       openModal('dialog');
     }
     function toggleHelp() { const h = $('help'); h.style.display = h.style.display === 'none' ? '' : 'none'; }
-    function cycleCam() { S.cam = (S.cam + 1) % CAMS.length; snapCamera = true; setText('camName', CAMS[S.cam]); }
+    function cycleCam() { S.cam = (S.cam + 1) % CAMS.length; snapCamera = true; CINE.shot = -1; setText('camName', CAMS[S.cam]); }
     function toggleSound() { Snd.init(); DB.settings.sound = !DB.settings.sound; persist(); setText('sndName', DB.settings.sound ? 'Son' : 'Muet'); }
 
     function renderAircraft() {
@@ -2894,6 +3060,11 @@
       <div class="stat"><span class="lbl">Plus long vol</span><b>${fmtDist(b.longest)}</b></div>
       <div class="stat"><span class="lbl">Atterrissage le + doux</span><b>${b.softest == null ? '—' : Math.abs(b.softest).toFixed(2) + ' m/s'}</b></div>
     </div>
+    <h3>Trajets enregistrés (${REPLAYS.length}/${REPLAYS_MAX})</h3>
+    ${REPLAYS.length ? `<table class="tbl"><tr><th>Trajet</th><th>Avion</th><th>Durée</th><th>Distance</th><th>Date</th><th></th></tr>
+      ${REPLAYS.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(AIRCRAFT[r.ac] ? AIRCRAFT[r.ac].name : r.ac)}</td><td>${fmtTime(r.dur)}</td><td>${fmtDist(r.dist || 0)}</td><td>${date(r.date)}</td>
+        <td style="white-space:nowrap"><button class="btn primary" data-rp-play="${r.id}">▶ Revoir</button> <button class="btn" data-rp-dl="${r.id}" title="Exporter">⬇</button> <button class="btn danger" data-rp-del="${r.id}" title="Supprimer">✕</button></td></tr>`).join('')}</table>`
+          : '<p class="hint">Aucun trajet enregistré. Appuyez sur K (ou ● Enreg.) en vol pour filmer votre trajet, puis revoyez-le ici en caméra cinéma.</p>'}
     <h3>Meilleurs temps par trajet et par avion</h3>
     ${rk.length ? `<table class="tbl"><tr><th>Trajet</th><th>Temps</th><th>Distance</th><th>Atterrissage</th><th>Date</th></tr>
       ${rk.map(([k, f]) => `<tr><td>${esc(k)}</td><td>${fmtTime(f.time)}</td><td>${fmtDist(f.dist)}</td><td>${esc(f.grade)}</td><td>${date(f.date)}</td></tr>`).join('')}</table>`
@@ -2918,7 +3089,7 @@
         Snd.init();
         ({
           aircraft: () => toggleModal('acModal'), map: () => toggleModal('mapModal'), records: () => toggleModal('recModal'),
-          cam: cycleCam, sound: toggleSound, help: toggleHelp, reset: resetFlight
+          cam: cycleCam, sound: toggleSound, help: toggleHelp, reset: resetFlight, rec: toggleRec, tilt: toggleTilt
         })[b.dataset.act]?.();
         b.blur();
       }));
@@ -2982,6 +3153,23 @@
         mapView.z = w.z + (w.sy - MP.H / 2) / mapView.scale;
       }, { passive: false });
 
+      // Trajets enregistrés & lecteur de rejeu
+      $('recBody').addEventListener('click', e => {
+        const t = e.target.closest('button'); if (!t) return;
+        const id = +(t.dataset.rpPlay || t.dataset.rpDl || t.dataset.rpDel), r = REPLAYS.find(x => x.id === id);
+        if (!r) return;
+        if (t.dataset.rpPlay) startReplay(id);
+        else if (t.dataset.rpDl) exportReplay(r);
+        else if (confirm(`Supprimer le trajet ${r.name} ?`)) { REPLAYS = REPLAYS.filter(x => x !== r); RecStore.save(REPLAYS); renderRecords(); }
+      });
+      $('rpPlay').onclick = () => replayKey(' ');
+      $('rpRate').onclick = () => { RP.rate = RP.rate >= 8 ? 0.25 : RP.rate * 2; };
+      $('rpCam').onclick = cycleCam;
+      $('rpExit').onclick = exitReplay;
+      $('rpSeek').oninput = e => { if (RP.active) replaySeek(+e.target.value / 1000 * RP.rec.dur); };
+      document.querySelectorAll('#rpBar button, #rpSeek').forEach(b => b.addEventListener('pointerup', () => b.blur()));
+      initTouch();
+
       // Records
       $('rExport').onclick = () => {
         const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
@@ -2994,6 +3182,14 @@
         rd.onload = () => {
           try {
             const d = JSON.parse(rd.result);
+            if (d.skywayReplay) {                      // trajet exporté depuis le lecteur de rejeu
+              if (!Array.isArray(d.f) || d.f.length < 2 || !(d.dur > 0)) throw new Error('format');
+              delete d.skywayReplay; d.id = Date.now();
+              if (!Object.prototype.hasOwnProperty.call(AIRCRAFT, d.ac)) d.ac = 'sirocco';
+              d.name = String(d.name || 'Trajet importé').slice(0, 60); d.hz = +d.hz > 0 ? +d.hz : REC_HZ; d.dur = d.f.length / d.hz;
+              addReplay(d); renderRecords(); toast(`Trajet importé · ${d.name}`, 'ok');
+              e.target.value = ''; return;
+            }
             if (!Array.isArray(d.flights)) throw new Error('format');
             DB.flights = d.flights.concat(DB.flights).slice(0, 200);
             if (d.best) {
@@ -3024,8 +3220,10 @@
       Snd.init();
       const k = keyId(e);
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k) || /^[0-9]$/.test(k)) e.preventDefault();
+      if (RP.active && !anyModal()) { if (!e.repeat) replayKey(k); return; }   // rejeu : lecteur, pas de pilotage
       if (!e.repeat) {
         switch (k) {
+          case 'k': toggleRec(); return;
           case 'escape': if (anyModal()) closeAllModals(); else { S.userPaused = !S.userPaused; refreshPause(); } return;
           case 'm': case 'p': toggleModal('mapModal'); return;
           case 'l': toggleModal('recModal'); return;
@@ -3051,6 +3249,258 @@
       if (mapOpen()) resizeMap();
     }
 
+    // ════════════════════════ Caméra cinéma : poursuite façon GTA + réalisateur automatique ════════════════════════
+    const CINE = { off: new THREE.Vector3(), offVel: new THREE.Vector3(), fov: 65, roll: 0, shot: -1, t: 0, dur: 0, anchor: new THREE.Vector3(), side: 1, ang: 0 };
+    const cDir = new THREE.Vector3(), cAim = new THREE.Vector3(), cLook = new THREE.Vector3(), cTmp = new THREE.Vector3();
+    const SHOTS = ['chase', 'flyby', 'orbit', 'track', 'front', 'ground'];
+    // Direction de déplacement (trajectoire si on avance, sinon le nez)
+    function travelDir(out) {
+      const v = S.vel.length();
+      out.set(0, 0, 1).applyQuaternion(plane.quaternion);
+      if (v > 5) out.lerp(cTmp.copy(S.vel).divideScalar(v), 0.5).normalize();
+      return out;
+    }
+    function setFov(target, dt, snap) {
+      CINE.fov = snap ? target : CINE.fov + (target - CINE.fov) * (1 - Math.exp(-dt * 2.5));
+      if (Math.abs(camera.fov - CINE.fov) > 0.01) { camera.fov = CINE.fov; camera.updateProjectionMatrix(); }
+    }
+    const camFloor = p => { p.y = Math.max(p.y, terrainHeight(p.x, p.z) + 2); return p; };
+    // Poursuite : ressort critique sur le décalage caméra (pas sur la position monde → pas de retard à grande vitesse)
+    function chaseCam(dt, snap, close = false) {
+      const v = S.vel.length(), L = AC.look;
+      travelDir(cDir);
+      const yaw = Math.atan2(cDir.x, cDir.z), pitch = Math.asin(clamp(cDir.y, -1, 1)) * 0.6;
+      const dist = (L.len * 1.1 + (close ? 4 : 10)) + v * (close ? 0.025 : 0.06) + clamp(S.accel, -3, 8) * 0.5;
+      const height = (close ? 1.2 : 2.6) + L.span * 0.08;
+      cAim.set(-Math.sin(yaw) * Math.cos(pitch) * dist, -Math.sin(pitch) * dist + height, -Math.cos(yaw) * Math.cos(pitch) * dist);
+      if (snap) { CINE.off.copy(cAim); CINE.offVel.set(0, 0, 0); CINE.roll = 0; }
+      else {
+        const w = 2.6;
+        cTmp.copy(cAim).sub(CINE.off).multiplyScalar(w * w).addScaledVector(CINE.offVel, -2 * w);
+        CINE.offVel.addScaledVector(cTmp, dt); CINE.off.addScaledVector(CINE.offVel, dt);
+      }
+      camFloor(camera.position.copy(plane.position).add(CINE.off));
+      vF.set(0, 0, 1).applyQuaternion(plane.quaternion);
+      cLook.copy(plane.position).addScaledVector(vF, 4 + v * 0.1); cLook.y += 1;
+      camera.up.set(0, 1, 0); camera.lookAt(cLook);
+      // roulis partiel (la caméra accompagne l'inclinaison) + vibrations à haute vitesse / fort facteur de charge
+      CINE.roll += (-S.bank * DEG * 0.28 - CINE.roll) * (snap ? 1 : 1 - Math.exp(-dt * 3));
+      camera.rotateZ(CINE.roll);
+      const shake = Math.max(0, v / AC.vne - 0.55) * 0.012 + Math.min(0.006, Math.abs(S.g - 1) * 0.0015) + S.turbLevel * 0.002;
+      if (shake > 0 && !S.onGround) { camera.rotateX(Math.sin(simT * 37) * shake); camera.rotateY(Math.sin(simT * 29 + 1.3) * shake); }
+      const vn = clamp((v - AC.stall) / Math.max(1, AC.vne - AC.stall), 0, 1);
+      setFov((close ? 58 : 60) + vn * 22 + (S.ab ? 7 : 0), dt, snap);
+    }
+    function nextShot() {
+      let s; const ground = S.onGround && !RP.active;
+      do { s = ground ? [0, 3, 5][Math.floor(Math.random() * 3)] : Math.floor(Math.random() * SHOTS.length); } while (s === CINE.shot && SHOTS.length > 1);
+      CINE.shot = s; CINE.t = 0; CINE.dur = 5 + Math.random() * 3; CINE.side = Math.random() < 0.5 ? -1 : 1; CINE.ang = Math.random() * Math.PI * 2;
+      const v = Math.max(S.vel.length(), 15), L = AC.look;
+      travelDir(cDir); vR.set(-cDir.z, 0, cDir.x).normalize();   // latéral horizontal
+      if (SHOTS[s] === 'flyby') {
+        CINE.anchor.copy(plane.position).addScaledVector(cDir, v * 3 + 40).addScaledVector(vR, CINE.side * (L.span * 2 + 18));
+        CINE.anchor.y += rnd(-4, 10); camFloor(CINE.anchor);
+        CINE.dur = Math.min(9, (v * 3 + 40) / v + 2.5);
+      } else if (SHOTS[s] === 'ground') {
+        CINE.anchor.copy(plane.position).addScaledVector(cDir, v * 4 + 80).addScaledVector(vR, CINE.side * rnd(50, 110));
+        CINE.anchor.y = terrainHeight(CINE.anchor.x, CINE.anchor.z) + 1.8;
+        CINE.dur = Math.min(10, (v * 4 + 80) / v + 3);
+      }
+      snapCamera = true;
+    }
+    function cineCam(dt) {
+      if (CINE.shot < 0 || CINE.t > CINE.dur) nextShot();
+      const snap = snapCamera; CINE.t += dt;
+      const L = AC.look, v = S.vel.length();
+      travelDir(cDir); vR.set(-cDir.z, 0, cDir.x).normalize();
+      camera.up.set(0, 1, 0);
+      switch (SHOTS[CINE.shot]) {
+        case 'chase': chaseCam(dt, snap, true); return;
+        case 'flyby': case 'ground':
+          camera.position.copy(CINE.anchor); camera.lookAt(plane.position);
+          setFov(clamp(2400 / Math.max(20, camera.position.distanceTo(plane.position)), 18, 60), dt, snap); return;
+        case 'orbit': {
+          CINE.ang += dt * 0.32 * CINE.side; const r = L.len * 1.8 + 14;
+          camFloor(camera.position.set(plane.position.x + Math.sin(CINE.ang) * r, plane.position.y + 3.5, plane.position.z + Math.cos(CINE.ang) * r));
+          camera.lookAt(plane.position); setFov(55, dt, snap); return;
+        }
+        case 'track':
+          cAim.copy(plane.position).addScaledVector(vR, CINE.side * (L.span * 1.6 + 16)).addScaledVector(cDir, -4); cAim.y += 1.5;
+          if (snap) camera.position.copy(cAim); else camera.position.lerp(cAim, 1 - Math.exp(-dt * 4));
+          camFloor(camera.position);
+          camera.lookAt(cLook.copy(plane.position).addScaledVector(cDir, 3)); setFov(38, dt, snap); return;
+        case 'front':
+          cAim.copy(plane.position).addScaledVector(cDir, L.len * 0.9 + 12 + v * 0.02); cAim.y += 2.2;
+          if (snap) camera.position.copy(cAim); else camera.position.lerp(cAim, 1 - Math.exp(-dt * 5));
+          camFloor(camera.position);
+          camera.lookAt(plane.position); setFov(50, dt, snap); return;
+      }
+    }
+
+    // ════════════════════════ Enregistrement & rejeu des trajets ════════════════════════
+    const REC_HZ = 10, REC_MAX = 20 * 60 * REC_HZ, REPLAYS_MAX = 6;   // 10 images/s, 20 min max, 6 trajets gardés
+    const RecStore = (() => {
+      const KEY = 'skyway.replays.v1'; let mem = [];
+      return {
+        load() { try { const s = localStorage.getItem(KEY); if (s) mem = JSON.parse(s); } catch (e) { } return Array.isArray(mem) ? mem : []; },
+        save(list) { mem = list; try { localStorage.setItem(KEY, JSON.stringify(list)); return true; } catch (e) { return false; } }
+      };
+    })();
+    let REPLAYS = RecStore.load();
+    const REC = { on: false, acc: 0, frames: [], ac: '', from: '', dist: 0 };
+    const RP = { active: false, rec: null, t: 0, rate: 1, playing: true, prevCam: 0 };
+    const r1 = v => Math.round(v * 10) / 10, r4 = v => Math.round(v * 1e4) / 1e4;
+    const placeName = (x, z) => { const ap = airportAt(x, z) || nearestAirport(x, z); return ap.id; };
+
+    function toggleRec() { if (RP.active) return; if (REC.on) stopRec(); else startRec(); }
+    function startRec() {
+      Object.assign(REC, { on: true, acc: 1, frames: [], ac: AC.id, from: placeName(plane.position.x, plane.position.z), dist: 0 });
+      $('recBadge').classList.add('on'); Snd.beep(880, 0.08);
+      toast('● Enregistrement du trajet (K pour arrêter)', 'info');
+    }
+    function stopRec() {
+      if (!REC.on) return;
+      REC.on = false; $('recBadge').classList.remove('on');
+      const fr = REC.frames;
+      if (fr.length < REC_HZ * 3) { toast('Enregistrement trop court, ignoré', 'caution'); return; }
+      const last = fr[fr.length - 1];
+      const rec = {
+        id: Date.now(), date: new Date().toISOString(), ac: REC.ac, hz: REC_HZ,
+        name: `${REC.from} → ${placeName(last[0], last[2])}`, dur: fr.length / REC_HZ, dist: REC.dist, f: fr
+      };
+      addReplay(rec);
+      toast(`Trajet enregistré · ${rec.name} · ${fmtTime(rec.dur)} (Records : L)`, 'ok');
+    }
+    function addReplay(rec) {
+      REPLAYS.unshift(rec); REPLAYS = REPLAYS.slice(0, REPLAYS_MAX);
+      while (!RecStore.save(REPLAYS) && REPLAYS.length > 1) REPLAYS.pop();   // stockage plein : on sacrifie les plus anciens
+      if ($('recModal').classList.contains('open')) renderRecords();
+    }
+    function recordTick(dt) {
+      if (!REC.on) return;
+      const fr = REC.frames, last = fr[fr.length - 1], p = plane.position;
+      if (last && Math.hypot(p.x - last[0], p.z - last[2]) > 400) { stopRec(); return; }   // téléportation (R, changement d'avion…)
+      REC.acc += dt;
+      if (REC.acc < 1 / REC_HZ) return;
+      REC.acc %= 1 / REC_HZ;
+      const q = plane.quaternion;
+      if (last) REC.dist += Math.hypot(p.x - last[0], p.y - last[1], p.z - last[2]);
+      fr.push([r1(p.x), r1(p.y), r1(p.z), r4(q.x), r4(q.y), r4(q.z), r4(q.w), r1(S.speed), Math.round(S.throttle * 100) / 100, Math.round(S.gearPos * 100) / 100]);
+      setText('recTime', fmtTime(fr.length / REC_HZ));
+      if (S.crashed || fr.length >= REC_MAX) stopRec();
+    }
+
+    const rpQa = new THREE.Quaternion(), rpQb = new THREE.Quaternion();
+    function startReplay(id) {
+      const r = REPLAYS.find(x => x.id === id); if (!r) return;
+      if (S.airborne && !S.crashed && !confirm('Quitter le vol en cours pour revoir ce trajet ?')) return;
+      if (REC.on) stopRec();
+      closeAllModals();
+      if (r.ac !== AC.id && AIRCRAFT[r.ac]) { S.crashed = true; setAircraft(r.ac); }
+      Object.assign(RP, { active: true, rec: r, t: 0, rate: 1, playing: true, prevCam: S.cam });
+      Object.assign(S, { flight: null, airborne: false, onGround: false, crashed: false, stallWarn: false, gearWarn: false, terrainWarn: false, refueling: false });
+      plane.visible = true;
+      S.cam = 3; CINE.shot = -1; snapCamera = true; setText('camName', CAMS[S.cam]);
+      setText('rpName', `${r.name} · ${AIRCRAFT[r.ac] ? AIRCRAFT[r.ac].name : r.ac}`);
+      document.body.classList.add('replay');
+      replayApply();
+    }
+    function exitReplay() {
+      if (!RP.active) return;
+      RP.active = false; document.body.classList.remove('replay');
+      S.cam = RP.prevCam; snapCamera = true; setText('camName', CAMS[S.cam]); setFov(65, 0, true);
+      resetFlight();
+    }
+    function replaySeek(t) { RP.t = clamp(t, 0, RP.rec.dur); replayApply(); }
+    function replayUpdate(dt) {
+      if (RP.playing) { RP.t += dt * RP.rate; if (RP.t >= RP.rec.dur) { RP.t = RP.rec.dur; RP.playing = false; } }
+      replayApply();
+    }
+    function replayApply() {
+      const r = RP.rec, f = r.f, hz = r.hz || REC_HZ, x = clamp(RP.t * hz, 0, f.length - 1);
+      const i = Math.min(Math.floor(x), f.length - 2), a = x - i, A = f[i], B = f[i + 1] || A;
+      plane.position.set(A[0] + (B[0] - A[0]) * a, A[1] + (B[1] - A[1]) * a, A[2] + (B[2] - A[2]) * a);
+      plane.quaternion.copy(rpQa.set(A[3], A[4], A[5], A[6])).slerp(rpQb.set(B[3], B[4], B[5], B[6]), a);
+      S.speed = A[7] + (B[7] - A[7]) * a; S.throttle = A[8]; S.gearPos = S.gearTarget = A[9];
+      S.vel.set((B[0] - A[0]) * hz, (B[1] - A[1]) * hz, (B[2] - A[2]) * hz);
+      S.gs = Math.hypot(S.vel.x, S.vel.z); S.vs = S.vel.y; S.accel = 0; S.g = 1;
+      S.onGround = plane.position.y <= GEAR + 0.05;
+      const sk = $('rpSeek'); if (document.activeElement !== sk) sk.value = Math.round(RP.t / r.dur * 1000);
+      setText('rpTime', `${fmtTime(RP.t)} / ${fmtTime(r.dur)}`);
+      setText('rpPlay', RP.playing ? '❚❚' : '▶'); setText('rpRate', '×' + RP.rate);
+    }
+    function replayKey(k) {
+      switch (k) {
+        case 'escape': exitReplay(); break;
+        case ' ': if (RP.t >= RP.rec.dur) RP.t = 0; RP.playing = !RP.playing; break;
+        case 'arrowleft': replaySeek(RP.t - 10); break;
+        case 'arrowright': replaySeek(RP.t + 10); break;
+        case 'arrowup': RP.rate = Math.min(8, RP.rate * 2); break;
+        case 'arrowdown': RP.rate = Math.max(0.25, RP.rate / 2); break;
+        case 'c': cycleCam(); break;
+        case 'l': toggleModal('recModal'); break;
+      }
+    }
+    function exportReplay(r) {
+      const blob = new Blob([JSON.stringify(Object.assign({ skywayReplay: 1 }, r))], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `skyway-trajet-${r.name.replace(/[^A-Z0-9]+/gi, '-')}-${r.id}.json`; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    // ════════════════════════ Pilotage par inclinaison (mobile / tablette) ════════════════════════
+    const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    const TILT = { on: false, listening: false, seen: false, p: 0, r: 0, rawP: 0, rawR: 0, p0: null };
+    const deadzone = (v, dead, full) => { const x = Math.abs(v); return x < dead ? 0 : Math.sign(v) * Math.min(1, (x - dead) / (full - dead)); };
+    function onOrientation(e) {
+      if (e.beta == null || e.gamma == null) return;
+      TILT.seen = true;
+      // Vecteur « haut » dans le repère de l'appareil (x droite, y haut de l'écran, z hors de l'écran)…
+      const b = e.beta * DEG, g = e.gamma * DEG;
+      const ux = -Math.cos(b) * Math.sin(g), uy = Math.sin(b), uz = Math.cos(b) * Math.cos(g);
+      // …puis dans le repère de l'écran affiché (portrait / paysage)
+      const ang = ((screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0) * DEG;
+      const sx = ux * Math.cos(ang) - uy * Math.sin(ang), sy = ux * Math.sin(ang) + uy * Math.cos(ang);
+      TILT.rawR = Math.atan2(-sx, Math.hypot(sy, uz));   // tourner comme un volant : + = à droite
+      TILT.rawP = Math.atan2(uz, sy);                    // 0 = écran vertical, 90° = à plat
+      if (TILT.p0 == null) TILT.p0 = TILT.rawP;
+      TILT.r = deadzone(TILT.rawR, 3 * DEG, 28 * DEG);
+      TILT.p = deadzone(TILT.p0 - TILT.rawP, 3 * DEG, 22 * DEG);   // haut de l'écran vers soi = cabrer
+    }
+    function calibrateTilt() { TILT.p0 = null; toast('Inclinaison calibrée : position actuelle = neutre', 'info'); }
+    async function toggleTilt() {
+      if (TILT.on) { TILT.on = false; TILT.p = TILT.r = 0; $('tiltBtn').classList.remove('on'); toast('Pilotage par inclinaison désactivé', 'info'); return; }
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          if (await DeviceOrientationEvent.requestPermission() !== 'granted') throw new Error('denied');
+        }
+      } catch (e) { toast('Accès aux capteurs de mouvement refusé', 'warn'); return; }
+      if (!TILT.listening) { addEventListener('deviceorientation', onOrientation); TILT.listening = true; }
+      TILT.on = true; TILT.p0 = null; $('tiltBtn').classList.add('on');
+      toast('Inclinaison : tournez comme un volant · ramenez le haut vers vous pour monter', 'ok');
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+        if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+      } catch (e) { }
+      setTimeout(() => { TILT.p0 = null; }, 700);   // recalibrer après la rotation éventuelle de l'écran
+      setTimeout(() => { if (TILT.on && !TILT.seen) toast("Aucun capteur d'orientation (HTTPS requis)", 'warn'); }, 1500);
+    }
+    function initTouch() {
+      if (!IS_TOUCH) return;
+      document.body.classList.add('touch');
+      const pad = $('touchPad');
+      pad.querySelectorAll('[data-hold]').forEach(b => {
+        const k = b.dataset.hold;
+        const up = () => { keys[k] = false; b.classList.remove('down'); };
+        b.addEventListener('pointerdown', e => { e.preventDefault(); Snd.init(); if (anyModal() || RP.active) return; b.setPointerCapture(e.pointerId); keys[k] = true; b.classList.add('down'); });
+        b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+      });
+      pad.querySelectorAll('[data-tap]').forEach(b => b.addEventListener('click', () => {
+        Snd.init();
+        ({ gear: () => !S.crashed && !RP.active && toggleGear(), tilt: toggleTilt, cal: calibrateTilt, rec: toggleRec, cam: cycleCam })[b.dataset.tap]?.();
+      }));
+    }
+
     // ════════════════════════ Boucle ════════════════════════
     // Boucle physique à pas fixe : la dynamique de vol tourne toujours à 120 Hz, quel que soit le framerate
     const PHYS_DT = 1 / 120, PHYS_MAX_STEPS = 12;
@@ -3068,10 +3518,16 @@
       requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.1);
       if (!S.paused) {
-        physAcc += dt;
-        let n = 0;
-        while (physAcc >= PHYS_DT && n < PHYS_MAX_STEPS) { physicsStep(PHYS_DT); physAcc -= PHYS_DT; n++; }
-        if (n === PHYS_MAX_STEPS) physAcc = 0;               // machine trop lente : on abandonne le retard
+        if (RP.active) {                                     // rejeu : la pose vient de l'enregistrement, pas de la physique
+          simT += dt; replayUpdate(dt);
+          physPrevPos.copy(plane.position); physPrevQuat.copy(plane.quaternion); physAcc = 0;
+        } else {
+          physAcc += dt;
+          let n = 0;
+          while (physAcc >= PHYS_DT && n < PHYS_MAX_STEPS) { physicsStep(PHYS_DT); physAcc -= PHYS_DT; n++; }
+          if (n === PHYS_MAX_STEPS) physAcc = 0;             // machine trop lente : on abandonne le retard
+          recordTick(dt);
+        }
         animatePlaneParts(dt, simT);
         updateTruck(dt); updateClouds(dt); updateWindsocks(simT); updateParticles(dt);
         TEX.water.offset.x += dt * 0.004; TEX.water.offset.y += dt * 0.002;

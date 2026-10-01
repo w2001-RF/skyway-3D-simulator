@@ -13,7 +13,7 @@ Constraints the user set:
 - Only external resource besides Three.js: Google Fonts (JetBrains Mono, Rajdhani), with fallbacks.
 
 ## 2. File layout (current state)
-One file: `threejs-airplane-simulator.html`.
+One file: `index.html`.
 1. `<style>` + DOM: HUD panels, modals, toasts.
 2. `<script>` **main engine**: world, physics, UI, navigation, records, wind, gear, aircraft types.
 3. **Combat extension**, pasted before `</body>`: `<style>`, extra DOM, `<script>` IIFE.
@@ -72,7 +72,7 @@ One file: `threejs-airplane-simulator.html`.
   - A world-space windsock (`socks[]`).
 - An autonomous truck drives back and forth on the road.
 
-## 5. Flight model (`updatePlane(dt)`, arcade)
+## 5. Flight model (`updatePlane(dt)`, vector aerodynamics)
 **Ground**
 - `S.roll` = signed ground speed along the heading (−6 … 200; reverse allows backing up).
 - Airspeed = roll + headwind.
@@ -80,16 +80,25 @@ One file: `threejs-airplane-simulator.html`.
 - Weathervaning: crosswind turns the nose into the wind.
 - Liftoff: pitch-up input AND airspeed ≥ `AC.vr` AND reverse off.
 
-**Air**
-- `S.speed` = airspeed. Acceleration = `thrust − drag·(1 + gearDrag·gearPos)·v² − 9.8·forward.y`.
-- Gust effect: `speed −= ΔW · forward`.
-- Position += `forward·speed + wind + (0, vy + wAir, 0)`.
-- Lift: `lift = clamp(speed/stall)`, `vy += −9.8·(1 − lift²)`, damped by `lift²`. Below stall the nose drops.
+**Air** (3-DOF point mass + kinematic attitude)
+- State: `S.va` = air-relative velocity vector (world). `S.speed = |va|`. `S.vy` is kept for compatibility (= va.y − forward.y·speed).
+- Density ratio `σ = e^(−alt/8500)` (`airDensityRatio`). Normalised dynamic pressure `qr = σ·(V/AC.stall)²` (1 = q at stall, sea level).
+- Wing α = angle of va in the body frame + `WING_INC` (4°). `liftCoef(α)` = CL/CLmax: linear up to `ALPHA_STALL` (16°), −25 % break, fades to 0 by ~50°.
+- Lift accel = `9.8·qr·cl`, clamped to `AC.gMax` (−gMax/2 when negative), along up ⟂ va.
+- Drag = `dragK·σ·V²` (parasitic, equals the old model at sea level) + `K_IND·|lift·cl|` (induced) + flat plate `CD_PLATE·sin²(nose vs airflow)`.
+- Side force `SIDE_K` kills sideslip. Thrust is ×σ, so the true-airspeed top speed ≈ `vmaxOf` at any altitude.
+- Coordinated turn: each step the nose is yawed about world-up by the heading change of va (centripetal force = banked lift). Turn rate = g·tanφ/V; `AC.turn` no longer exists.
+- Weathercock: yaw toward va (sideslip). When stalled (hysteresis 16° / 12°) the nose drops toward α = 10°.
+- Auto-stab pitch targets flight-path angle γ = 0 (not pitch 0), so "hands off" = level flight at any speed.
+- α limiter: pitch input fades out near the stall when `qr > 1`. Hard pulls at speed don't stall; low-speed stalls still happen.
+- Gust effect: `va −= ΔW` (ground speed is conserved). Position += `va + wind + (0, wAir, 0)`.
+- Stall warning: `S.stallWarn` (α > 13° or qr < 1.05). `S.vsEff = stall/√σ` (true-airspeed stall speed at altitude) drives the HUD margin.
+- Calibration (checked with a Node harness that runs the real `updatePlane`): cruise trims to vs ≈ 0, top speeds match `vmaxOf`, 45° turns match g·tanφ/V.
 
 **Controls**
 - Spring-centered control surfaces `S.ctl.{p,r,y}`: they ramp at `AC.ctlRate` while a key is held and return ×1.6 faster when released.
 - Auto-stabilization levels bank, and pitch when |bank| < 90° and above stall, scaled by `AC.stab·(1 − |ctl|)`.
-- Bank-induced turn: world-Y rotation by `right.y · AC.turn`.
+- Tilt input (mobile): `TILT.p/r` (analog −1…1) replace the pitch/roll keys when `TILT.on` and no key is held.
 - Throttle is a sticky lever (does NOT spring back).
 
 **Turbulence:** filtered noise (`turbV/R/P`, sqrt(dt) scaling) plus mountain waves (updraft upwind, downdraft downwind) in `updateAirMass()`.
@@ -132,7 +141,7 @@ One file: `threejs-airplane-simulator.html`.
 
 \* defined in the combat extension.
 - Military entries also carry: `jet: true`, `ab`, `baseThrust`, `baseFuelThr`, and `mil: {guns, missiles, flares, armor, gunDmg}`.
-- Each type also defines: `pitch, roll, yaw, turn, stab, ctlRate, vne, vle, gearDrag, xwind, rpmMax, snd`, plus `look` (geometry and livery colors).
+- Each type also defines: `pitch, roll, yaw, gMax, stab, ctlRate, vne, vle, gearDrag, xwind, rpmMax, snd`, plus `look` (geometry and livery colors).
 - `vmaxOf(a) = sqrt(thrust / (drag·(1 + (retract ? 0 : gearDrag))))`.
 
 ## 7. Controls (keyboard, AZERTY + QWERTY)
@@ -141,7 +150,7 @@ One file: `threejs-airplane-simulator.html`.
 - **Pitch:** 5/↓ climb, 8/↑ dive. **Roll:** 4/←, 6/→. **Rudder:** A/Q left, E/D right.
 - **Ground:** Space brakes, G gear, X reverse.
 - **Windows:** M/P map & flight plan, L records, T aircraft & weather.
-- **View, sound, misc:** C camera (chase/cockpit/side), N sound, I invert pitch, H help, R restart, Esc pause / close modal.
+- **View, sound, misc:** C camera (Poursuite/Cockpit/Latérale/Cinéma), K record trajet, N sound, I invert pitch, H help, R restart, Esc pause / close modal.
 - **Combat:** J campaign, F gun (hold), V missile, B flares, Tab next target, Shift + full throttle afterburner.
 
 ## 8. Main engine: key state and functions
@@ -169,7 +178,25 @@ One file: `threejs-airplane-simulator.html`.
 - `openModal`, `closeAllModals` (pauses the sim and blurs the focused element), `showDialog(title, html, [[label, fn, primary]], cls)`, `toast(msg, type)`.
 - `renderPlan`, `startMission`, `renderAircraft`, `renderWeather`, `renderRecords`.
 
-**Main loop:** `animate()` → updatePlane (unless paused/crashed) → animatePlaneParts → truck / clouds / windsocks / particles → attitude and nav → camera → world → HUD → canvases → sound → render.
+**Main loop:** `animate()` → fixed-step physics → animatePlaneParts → truck / clouds / windsocks / particles → attitude and nav → camera → world → HUD → canvases → sound → render.
+- Fixed step: an accumulator runs `physicsStep(1/120)` (simT + updatePlane), max 12 steps per frame. When `RP.active`, `replayUpdate` runs instead. `recordTick` runs after the physics steps.
+- Rendering interpolates the plane pose between the last two physics steps and restores the true pose right after `render`. Interpolation is skipped if the plane moved > 30 m (teleport).
+
+**Cameras**
+- `chaseCam` (Poursuite): critically damped spring on the camera *offset* (so no lag at high speed), look-ahead, follows 28 % of the bank, FOV 60→82 with speed (+7 with afterburner), shake at high speed or high g.
+- `cineCam` (Cinéma): auto director cycling `SHOTS` (chase, flyby, orbit, track, front, ground) every 5–8 s.
+
+**Recording and replay**
+- `REC` samples 10 Hz frames `[x,y,z,qx,qy,qz,qw,speed,thr,gear]`. It stops automatically on a crash, a teleport, or after 20 min.
+- Saved under a separate localStorage key `skyway.replays.v1` (`RecStore`): max 6, oldest dropped if storage is full.
+- The Records modal lists replays (▶ / export / delete). A single-replay JSON (`skywayReplay: 1`) can be loaded with Importer.
+- `startReplay` switches aircraft if needed; `exitReplay` calls `resetFlight`. Replay keys: Space, ← →, ↑ ↓, C, Esc.
+
+**Touch and tilt**
+- `IS_TOUCH` adds `body.touch`. `#touchPad` hold buttons map to `keys` (z, s, a, e, space); tap buttons handle gear, calibrate and REC.
+- The Inclinaison button calls `toggleTilt` (iOS permission prompt; fullscreen and landscape lock are best-effort).
+- `onOrientation` turns beta/gamma into a screen-space up vector. Roll = steering-wheel tilt, pitch = top edge toward you = climb, neutral = calibration (`TILT.p0`).
+- Sensor events need HTTPS (or localhost).
 
 **Persistence:** `Store` (localStorage key `skyway.sim.v1`, in-memory fallback) and `DB`:
 ```
@@ -240,6 +267,6 @@ DB = {
      store/
 ```
    - Replace the function-wrapping hooks with explicit events/hooks.
-2. Add a fixed-timestep physics loop (e.g. 120 Hz) for determinism.
+2. ~~Fixed-timestep physics loop~~ (done, 120 Hz).
 3. Add unit tests for the coordinate helpers (`compassOf`, `toLocal`/`toWorld`), wind, landing grading and the scoring formula.
-4. Add touch/gamepad controls (Gamepad API), and pool the bullet/puff meshes.
+4. Add gamepad controls (Gamepad API), and pool the bullet/puff meshes.
