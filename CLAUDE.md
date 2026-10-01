@@ -4,6 +4,8 @@
 Single-page browser flight simulator, French UI ("SKYWAY · Simulateur de vol").
 It started as a 3D truck/car scene and grew into:
 - Civil flight sim: 4 civil + 3 military aircraft, wind, gear, reverse thrust, navigation and flight planning, radar and map, records.
+- 4 procedural maps (18–22 km play areas plus 6 km of surrounding terrain), switchable in the M window. An aircraft carrier (catapult, arresting wires) sits on Vallée and Archipel.
+- Keyboard, touch/tilt and gamepad controls.
 - Combat campaign: 6 missions, enemy AI, guns/missiles/flares, scoring and stars.
 
 Constraints the user set:
@@ -41,38 +43,69 @@ One file: `index.html`.
 **Three.js r128 gotchas**
 - Object `lookAt` points local +Z at the target.
 - For enemy orientation use `Matrix4.lookAt(pos+fwd, pos, up)`.
-- InstancedMesh needs `frustumCulled = false` (instances spread over the whole map).
+- InstancedMesh culling uses the geometry bounding sphere only: either set `frustumCulled = false` (`instanced()`), or give each mesh its own geometry clone with a hand-set `boundingSphere` (`buildTrees`).
 - `ConeGeometry` apex is +Y; translate/rotate it as documented in the code.
 
 **Ground layers:** `polygonOffset` factors go -1 (fields/clearing), -2 (asphalt), -3 (water), -4 (paint), -5 (runway numbers).
 
-## 4. World constants
+## 4. World: maps, terrain, scenery
 - Plane-center height on gear: `GEAR = 1.6`. Wheels bottom at −1.6 local.
-- `WORLD = 3200` (play area ±3200 m). Ground plane 16000², fog 450–2800, camera far 6000, sky sphere r = 4000.
-- Runways 800 × 30 m. `ROAD_X = 90`, `ROAD_LEN = 3000` (road along Z).
-- `AIRPORTS`:
+- Runways 800 × 30 m.
 
-  | id | name | x | z | h (rad) |
+**Maps (`MAPS`, `MAP_ORDER`)**
+- Each map = `{name, desc, world, seed, haze, palette, clouds[lo,hi], trees, treeline, snow, fields, airports[], lakes[], road?, corridors?, relief(x,z,N)}`.
+- `WORLD` (play area ±world), `ROAD_X`, `ROAD_LEN` (0 = no road) are `let`s set by `loadMap`.
+- `AIRPORTS`, `LAKES`, `CARRIERS` are `const` arrays refilled in place by `loadMap`. Never reassign them.
+
+  | id | name | world (±m) | relief | carrier |
   |---|---|---|---|---|
-  | VAL | Vallée | 0 | 0 | 0 |
-  | LAC | Lac Bleu | −1700 | 1300 | −0.6 |
-  | NOR | Col du Nord | 1700 | 1700 | 0.9 |
-  | SUD | Plateau Sud | 900 | −2100 | 1.75 |
+  | vallee | Vallée | 9000 | original 4 airports + lakes + road at the center (same coordinates as before), hills, ridges to ~1400 m north and east, coast to the west (+X) | PA1 at (8000, 300) |
+  | alpes | Hautes-Alpes | 10000 | ridged peaks to ~3100 m, flat-floored valleys (`corridors`), glacier altiport GLA ~1700 m | — |
+  | archipel | Archipel | 11000 | ocean with islands (`islands`), 1150 m volcano with a crater | PA1 at (0, −6200) |
+  | canyon | Canyons | 10000 | 380 m plateau, terraced mesas, gorges with rivers below sea level | — |
 
-- `LAKES`: (−2250, 950, r 240) and (1250, −1250, r 160).
-- Mountains: 50 random cones (r 160–380, ring 750–2900 m) with vertex jitter (deterministic `hash`, positions rounded) and vertex-color snow.
-  - They keep clear of airports (r + 750), lakes and the road.
-  - `terrainHeight(x,z)` = max over mountains of `h·(1 − d/(1.05 r))`, otherwise 0.
-- Scenery placement uses `blockedForScenery()`:
-  - Instanced trees (`GFX.trees`, 450–1700 by tier).
-  - Textured field patches (`GFX.fields`, 60–160).
-  - Clouds (`GFX.clouds`, 35–110): each cloud is ONE mesh with its puffs merged into one geometry.
-- Each airport has:
-  - Runway texture, numbers.
-  - Paint markings, edge and threshold lights as `InstancedMesh` (`instanced()` + `flatMatrix()` on `GEO.unitPlane`). The road dashes use the same approach.
-  - Tower, hangar, apron.
-  - A world-space windsock (`socks[]`).
-- An autonomous truck drives back and forth on the road.
+- Airport `y`: a number, or `'auto'` = natural relief at the center (rounded, ≥ 0). Carrier entries have `carrier: true` and `y = DECK_Y`.
+- `?map=<id>` overrides `DB.settings.map`. Combat levels always run on `vallee`.
+
+**Terrain (`genHeights`, `TER`)**
+- Seeded Perlin noise (`makeNoise(seed)` → `n2`, `fbm`, `ridge`), `mulberry32` RNG. Generation is deterministic per map.
+- `naturalHeight` = `relief` + valley corridors (flat floor `w0`, blend to `w1`) + fade to −40 m beyond `world + MARGIN − 2600` (`MARGIN = 6000`: real terrain continues past the play area).
+- `genHeights` then flattens:
+  - lakes to `l.y`;
+  - the road to 0;
+  - each airport rectangle (local lx −140…90, |lz| ≤ 740, plus one cell) to `ap.y`, blending over 650 m;
+  - the sea under each carrier to at least −40 m.
+- Grid: `GFX.terrN` cells per side over ±`TER.E` (`E = world + MARGIN`). Cells are about 100 m on Élevé.
+- `terrainHeight(x,z)` interpolates on the SAME triangles as the mesh (diagonal (i+1,j)–(i,j+1)), so physics and render match exactly. `terrainGrad` gives the slope.
+- `prepareGrids` adds per-vertex `TER.SL` (slope), `TER.FO` (forest density) and `TER.WN` (near water); `sampleGrid` reads them bilinearly.
+- `SEA = −2`. Terrain below `SEA` is water.
+- Surface helpers:
+  - `groundAt(x,z)` = deck / water / terrain height.
+  - `surfaceAt(x,z)` → shared `SURF {y, water, lake, deck, slope}`.
+  - `deckAt(x,z)` → shared `DK {ap, lx, lz}`. Copy the values before calling it again.
+
+**Rendering a map (`loadMap(id)`; `switchMap(id, then)` adds the loading overlay)**
+- `buildTerrain`: tiles of `TILE = 32` cells (one Mesh each, shared Uint16 index, normals from the grid) for frustum culling.
+- Terrain material: Lambert with `map = buildColorMap()`. This is one canvas over the whole grid (`GFX.cmap` px), colored per pixel by `terrainColor(palette, h, slope, noise, forest, out, nearWater)`, with farm plots painted on gentle lowland.
+- `onBeforeCompile` multiplies the color by `TEX.detail` at two scales (about 24 m and 270 m).
+- `buildWater`: per-tile quads at `SEA` on submerged cells, plus a frame of ocean beyond the grid. `MAT.water` is rebuilt per map.
+- `buildLakes`: discs + sand rings at `l.y`.
+- `buildFields`: crisp textured field meshes, only on exactly flat ground, one merged mesh per `TEX.fields` texture.
+- `buildTrees`: one trunk + one leaf `InstancedMesh` per tile.
+  - Each tile's cloned geometry gets a hand-set `boundingSphere`, so camera and shadow culling work.
+  - Leaf colors come from `setColorAt`.
+  - Count = `GFX.treeDen` per km² × `MAP.trees`, capped by `GFX.treeMax`, accepted with probability `FO^1.6`.
+- Airports: `buildAirport(ap)` (group at `ap.y`, windsock at `ap.y`). Desert maps use `MAT.clearingSand`. Carriers use `buildCarrier(ap)`.
+- `buildMapImage`: 720 px map image (relief colors × hillshade + contour lines every 100 m, darker every 500 m) and `PEAKS` (local maxima ≥ 150 m, at least 1.8 km apart).
+- Everything goes in `worldGroup`. `disposeWorld` frees the per-map geometry, materials and textures, but keeps `MAT`, `GEO`, `TEX` and `numberMats`.
+- Haze color (`MAP.haze`) drives fog, background and sky horizon.
+- Clouds: `GFX.clouds` meshes (puffs merged), recycled in a square of ±`GFX.fog·1.1` around the plane (`updateClouds`), altitude band `MAP.clouds`.
+- The truck only exists on maps with a `road`.
+
+**Aircraft carrier (`CV`, local frame like an airport: +Z = bow)**
+- Deck 300 × 64 m at `DECK_Y = 16`. Island on the starboard side (−X), box `CV.ISL`.
+- Catapult track from `CV.CAT0` (+10) to `CV.CAT1` (+146). Civil aircraft start at `CV.START` (−132). Wires at `CV.WIRES` (−100, −88, −76, −64).
+- Deck texture: 256 × 1024 canvas (top = stern, left = starboard).
 
 ## 5. Flight model (`updatePlane(dt)`, vector aerodynamics)
 **Ground**
@@ -81,6 +114,16 @@ One file: `index.html`.
 - Static friction 1.2, rolling friction 1.2, brakes 14 m/s².
 - Weathervaning: crosswind turns the nose into the wind.
 - Liftoff: pitch-up input AND airspeed ≥ `AC.vr` AND reverse off.
+- On the ground the plane follows `surfaceAt` (`plane.y = surface + GEAR`, `S.groundY`). Airports can be elevated (`ap.y`).
+- If the surface drops by more than 2.5 m (bow of the carrier, cliff edge), the plane becomes airborne with its ground speed (`onTakeoff(ship)`). Otherwise water ⇒ crash, and slope > 0.35 ⇒ crash.
+
+**Carrier (`carrierGround`, `hookDown`, `onCatMark`)**
+- Catapult: on the mark (|lz − CAT0| < 14, |lx| < 8, stopped) with throttle ≥ 90 %, the plane is held back for 1.5 s (`S.catHold`).
+- Then `S.cat` applies `(vt² − v²)/(2·remaining)` up to vt = 1.25·Vr at CAT1. Leaving the bow pitches the nose up 0.1 rad.
+- Hook: jets only, down whenever the gear is down. Crossing a wire toward the bow at > 12 m/s sets `S.trap = {stop: lz + 75, wire}`.
+  - Deceleration is `max(5, v²/(2·remaining))`, and the thrust is ignored.
+  - Touching down past the last wire with the hook down shows "Bolter".
+- Civil aircraft land on the deck with brakes only. They start at the stern, and jets start on the catapult.
 
 **Air** (3-DOF point mass + kinematic attitude)
 - State: `S.va` = air-relative velocity vector (world). `S.speed = |va|`. `S.vy` is kept for compatibility (= va.y − forward.y·speed).
@@ -101,9 +144,10 @@ One file: `index.html`.
 - Spring-centered control surfaces `S.ctl.{p,r,y}`: they ramp at `AC.ctlRate` while a key is held and return ×1.6 faster when released.
 - Auto-stabilization levels bank, and pitch when |bank| < 90° and above stall, scaled by `AC.stab·(1 − |ctl|)`.
 - Tilt input (mobile): `TILT.p/r` (analog −1…1) replace the pitch/roll keys when `TILT.on` and no key is held.
+- Gamepad: `PAD.p/r/y` (analog) replace pitch/roll/yaw when no key is held. `PAD.thr` (RT − LT) moves the throttle at 0.6/s.
 - Throttle is a sticky lever (does NOT spring back).
 
-**Turbulence:** filtered noise (`turbV/R/P`, sqrt(dt) scaling) plus mountain waves (updraft upwind, downdraft downwind) in `updateAirMass()`.
+**Turbulence:** filtered noise (`turbV/R/P`, sqrt(dt) scaling) plus mountain waves in `updateAirMass()`. Wave = `0.6·(wind · terrain gradient over ±120 m)`, clamped to ±0.45·wind and fading out by 700 m AGL. Roughness grows with slope.
 
 **Wind (`windAt(agl, t)`)**
 - Profile ×0.8 at the ground up to ×1.6 at 400 m.
@@ -115,14 +159,14 @@ One file: `index.html`.
 - Descent < −7 m/s.
 - Lateral drift > 6 m/s.
 - Bad attitude.
-- Terrain collision.
+- Terrain collision: touchdown on slope > 0.2, or more than 2.5 m below the surface (also the carrier hull). Island hit (`carrierHit`). Touchdown or rolling into water / a lake.
 - Speed > `vne + 18`.
 
 **Landing grade:** uses `|vs| + 0.35·|lateral|`. Under 1 = Parfait, under 2.5 = Bon, under 4.5 = Ferme, otherwise Dur.
 
 **Fuel and engine**
 - Fuel (%) burns `fuelBase + fuelThr·throttle` per second.
-- Refuels at 10 %/s when stopped on any runway.
+- Refuels at 10 %/s when stopped on any runway or carrier deck (`airportAt` covers the deck).
 - RPM is display only.
 
 **Gear (`G`):** 3 s transit, retractable types only, not on the ground. Gear-up horn and "VITESSE TRAIN" warning above `vle`.
@@ -155,26 +199,35 @@ One file: `index.html`.
 - **Camera look (GTA-style):** drag on the 3D view (left/right button or one finger) to orbit, wheel to zoom, double-click to recentre; it auto-recentres 1.5 s after release. Hold O or the middle mouse button for the rear view. Applies to Poursuite, Cockpit (head look) and Latérale; Cinéma ignores it. State: `LOOK` (`lookState`, `updateLook`, `initMouseLook`).
 - **View, sound, misc:** C camera (Poursuite/Cockpit/Latérale/Cinéma), K record trajet, N sound, I invert pitch, H help, R restart, Esc pause / close modal.
 - **Combat:** J campaign, F gun (hold), V missile, B flares, Tab next target, Shift + full throttle afterburner.
+- **Gamepad** (`pollGamepad()` each frame, standard mapping, first connected pad):
+  - Left stick: roll / pitch (pull back = climb, `I` still inverts). Right stick X: rudder. RT / LT: throttle up / down. RT fully pressed at full throttle: afterburner.
+  - Held buttons set `keys` (`PAD_HOLD`): A brakes, RB gun, R3 rear view.
+  - Tapped buttons dispatch synthetic keydown/keyup (`PAD_TAP`, `padKey`), so both listeners react: B gear, X missile, Y camera, LB flares, Select map, Start pause/Esc, D-pad ← reverse, → next target. D-pad ↑ ↓ change the radar range.
+  - Only Select and Start work while a modal or a replay is open.
 
 ## 8. Main engine: key state and functions
 **State objects**
-- `S`: global flight state, including `throttle, speed, roll, vy, heading, onGround, crashed, paused, fuel, ctl, gearPos/Target, reverse, wAir, vel, prevVel, flight, home, ab`.
+- `S`: global flight state, including `throttle, speed, roll, vy, heading, onGround, crashed, paused, fuel, ctl, gearPos/Target, reverse, wAir, vel, prevVel, flight, home, ab, groundY, cat, catHold, trap`.
+- `MAP`: loaded map (copy of `MAPS[id]` + `id`). `TER`: height grid.
 - `AC`: current aircraft. `plane`: current mesh. `mission`, `plan`, `NAV`: navigation trip.
 
 **World and aircraft builders**
 - `init`, `buildTextures`, `canvasTex`, `texRep`, `makeAsphalt`, `makeLivery`.
-- `createSky / Ground / Lakes / Road / Mountains / Trees / Clouds`, `buildAirport`, `buildWindsock`.
+- `loadMap`, `switchMap`, `genHeights`, `prepareGrids`, `buildTerrain`, `buildColorMap`, `buildWater`, `buildLakes`, `buildFields`, `buildTrees`, `buildMapImage`, `disposeWorld`.
+- `createSky`, `createClouds`/`scatterClouds`, `createRoad`, `buildAirport`, `buildWindsock`, `buildCarrier`, `hiTex` (textures drawn at `GFX.tex`× resolution).
 - `createPlane(ac)` returns a Group with `userData.parts = {props, gear, ail[{piv, side}], elev, rud, beacon}`.
 - `createTruck`, `applyAircraftCamera`, `animatePlaneParts`.
 
 **Flight and flight lifecycle**
-- `updatePlane`, `updateAirMass`, `windAt`, `terrainHeight`.
+- `updatePlane`, `updateAirMass`, `windAt`, `terrainHeight`, `groundAt`, `surfaceAt`, `deckAt`, `carrierHit`, `carrierGround`.
 - `placeAtAirport(id)`, `resetFlight`, `setAircraft(id)` (only on the ground or after a crash).
 - `toggleGear`, `toggleReverse`, `onTakeoff`, `onTouchdown`, `finishLanding`, `crash`.
 
 **Navigation and HUD**
 - `computeAttitude`, `computeNav` (BRG, DIST, ETA, DTK, XTK, 3° glide path, remaining distance).
-- `drawHorizon`, `drawStick`, `drawRadar(t)` (heading-up, 4 ranges, terrain colored by clearance), `drawMap` (zoom, pan, click to add waypoint).
+- `drawHorizon`, `drawStick`, `drawRadar(t)` (heading-up, 5 ranges up to 8 km). `drawRadarTerrain` draws a 64² image sampled every frame: red = above the plane, orange = within 150 m below, blue = water.
+- `drawMap`: `MAPIMG` relief, darkened area outside `WORLD`, peaks, carrier ⚓, zoom/pan, click to add a waypoint. `NAV.gpAlt` targets the destination elevation.
+- `fillAirportSelects` rebuilds the plan selects and the map picker (`#mapPick`).
 - `updateHUD` runs at ~15 Hz; alerts are deduplicated with `lastAlerts`.
 
 **UI**
@@ -192,7 +245,10 @@ One file: `index.html`.
   - Intel UHD/Iris, Radeon integrated, recent mobile → medium.
   - GeForce / Radeon RX / Apple M → high.
   - RTX x060+ / RX x700+ / M Max → ultra.
-- `GFX_TIERS[tier]` = `{pr, prMin, aa, shadows, shadowSize, soft, box, aniso, trees, fields, clouds, puffs}`. `GFX` is the resolved tier, available as a global (the combat extension reads `GFX.puffs`).
+- `GFX_TIERS[tier]` = `{pr, prMin, aa, shadows, shadowSize, soft, box, aniso, fog, terrN, cmap, tex, treeDen, treeMax, fields, clouds, puffs}`.
+  - Fog far = `GFX.fog` (2800–5200 m), camera far = fog + 1500.
+  - `terrN` = terrain grid resolution (160–352). `cmap` = ground color texture (1024/2048).
+  - The physics uses the same grid, so terrain detail depends on the tier. `GFX` is the resolved tier, available as a global (the combat extension reads `GFX.puffs`).
 - Choice: `DB.settings.gfx` (`'auto'` or a tier id). The `?gfx=` URL parameter overrides it, which still works when localStorage is blocked. `setGfx(id)` confirms with the user, then reloads the page, because scene counts and MSAA are fixed at init.
 - Renderer: `antialias: GFX.aa`, `powerPreference: 'high-performance'` (selects the discrete GPU on dual-GPU laptops). Shadows are off on low; PCF on medium, PCFSoft above. Anisotropy is capped by `GFX.aniso`. The shadow box is ±`GFX.box` m.
 - Dynamic resolution (`DYN`, `updateDynRes(raw dt)`, toggle `DB.settings.dynRes`):
@@ -211,7 +267,8 @@ One file: `index.html`.
 - `REC` samples 10 Hz frames `[x,y,z,qx,qy,qz,qw,speed,thr,gear]`. It stops automatically on a crash, a teleport, or after 20 min.
 - Saved under a separate localStorage key `skyway.replays.v1` (`RecStore`): max 6, oldest dropped if storage is full.
 - The Records modal lists replays (▶ / export / delete). A single-replay JSON (`skywayReplay: 1`) can be loaded with Importer.
-- `startReplay` switches aircraft if needed; `exitReplay` calls `resetFlight`. Replay keys: Space, ← →, ↑ ↓, C, Esc.
+- Records and replays store `map`. `routeKey` and replay names are prefixed with the map name when the map is not Vallée.
+- `startReplay` loads the replay's map and switches aircraft if needed; `exitReplay` calls `resetFlight`. Replay keys: Space, ← →, ↑ ↓, C, Esc.
 
 **Touch and tilt**
 - `IS_TOUCH` adds `body.touch`. `#touchPad` hold buttons map to `keys` (z, s, a, e, space); tap buttons handle gear, calibrate and REC.
@@ -225,8 +282,8 @@ One file: `index.html`.
 DB = {
   flights[],
   best{maxAlt, maxSpeed, longest, softest},
-  settings{invert, sound, ac, gfx, dynRes, wx{preset, from, base, gust, turb}},
-  combat{unlocked, best{levelId: {score, stars, time, ac}}, ac}
+  settings{invert, sound, ac, gfx, dynRes, map, wx{preset, from, base, gust, turb}},
+  combat{unlocked, best{levelId: {score, stars, time, ac}}, ac, start('base'|'carrier')}
 }
 ```
 - Export/import JSON is available in the Records window.
@@ -239,6 +296,7 @@ DB = {
 - `animatePlaneParts`: flames, second rudder, missile pylons.
 - `crash` → `fail()`.
 - `resetFlight`: restarts the level.
+- `loadMap`: ends the running mission and clears all units.
 - `updateCamera`: camera shake.
 - `drawRadar`: enemy blips, overlay drawing, UI tick.
 - `drawMap`: enemies.
@@ -263,10 +321,15 @@ DB = {
   - lock: < 3.2 km and within 0.33 rad, takes 0.9 s;
   - flares: 75 % chance to decoy each incoming missile.
 - `LEVELS` (6), each with `{id, name, diff, base, wx, time, air?, brief, tips, spawn[{kind, n, at, spread, alt, skill, msl, delay, speed, toward, escort}], goals[{kinds, label}], rtb?, fail?('convoy'|'bombers')}`.
-- Scoring: kills + 3·time left + 10·hp + 1000·accuracy.
+- Scoring: kills + 3·time left (vs `CB.timeLimit`) + 10·hp + 1000·accuracy.
   - Stars: 1 for completing, +1 if hp ≥ 60, +1 if time ≤ 60 % of the limit.
   - Completing a level unlocks the next one.
-- Stopping on any runway during combat repairs and rearms.
+- Stopping on any runway or on the carrier deck during combat repairs and rearms.
+- Departure option (`DB.combat.start`, campaign window): base, or carrier (`CARRIERS[0]`, catapult start).
+  - A carrier start ignores `air` starts and adds transit time: `CB.timeLimit = L.time + dist(carrier, base)/160 + 25`.
+  - Return to base is satisfied by stopping at `L.base` OR on the carrier.
+  - `startLevel` first `switchMap('vallee')` if needed. The level-3 convoy uses the literal road x = 90.
+- Impacts (enemy crashes, wrecks, bullets, missiles, terrain avoidance) use `groundAt` (water and deck included).
 - Combat HUD: full-screen `#cbOverlay` canvas (gunsight, target brackets, lock diamond, lead circle, off-screen arrows, damage vignette), `#cbPanel`, `#cbBanner`, `#cbModal`.
 
 ## 10. Known caveats / gotchas
@@ -275,7 +338,11 @@ DB = {
 - `setAircraft` refuses while airborne. `startLevel` works around this by setting `S.crashed = true` before switching.
 - Two `keydown` listeners exist (main + combat). Tab needs `preventDefault`; inputs and selects are ignored.
 - Enemy/particle systems create a material per puff (capped at `GFX.puffs`, 250–900). Watch performance if you add more effects.
-- New static scenery should respect the `GFX` budgets. Batch repeated small meshes with `instanced()`, because draw calls are the main cost: about 155 per frame versus about 500 before batching.
+- New static scenery should respect the `GFX` budgets. Batch repeated small meshes with `instanced()` or per-tile instancing, because draw calls are the main cost. Typical frame: about 80 (Bas) / 160 (Élevé) / 230 (Ultra) draw calls.
+- Scenery must go in `worldGroup` (not `scene`), or it survives map changes and leaks.
+- `surfaceAt` and `deckAt` return shared objects (`SURF`, `DK`); copy the fields before calling them again.
+- Map generation is synchronous: ~70 ms for heights, plus the color map (~0.2 s at 1024 px, more at 2048). `switchMap` shows `#loading` first.
+- Headless Edge does not run requestAnimationFrame. Test physics by calling `physicsStep(1/120)` in a loop.
 - `GFX`, `GPU` and `DB` are read before `init()`. `DYN` is declared next to `animate` and must exist before `init()` runs.
 - `center(e)` and the temp vectors are shared; clone them before storing.
 
@@ -293,4 +360,5 @@ DB = {
    - Replace the function-wrapping hooks with explicit events/hooks.
 2. ~~Fixed-timestep physics loop~~ (done, 120 Hz).
 3. Add unit tests for the coordinate helpers (`compassOf`, `toLocal`/`toWorld`), wind, landing grading and the scoring formula.
-4. Add gamepad controls (Gamepad API), and pool the bullet/puff meshes.
+4. ~~Gamepad controls~~ (done). Pool the bullet/puff meshes.
+5. Moving carrier (wind over deck), aircraft parked on the deck, landing aids (meatball).

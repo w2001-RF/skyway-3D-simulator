@@ -885,6 +885,35 @@
       min-width: 0
     }
 
+    .mappick button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px
+    }
+
+    .mappick button small {
+      font-size: 10px;
+      opacity: .7
+    }
+
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(6, 10, 16, .72);
+      color: #e6eef7;
+      font: 600 18px 'Rajdhani', sans-serif;
+      letter-spacing: .04em
+    }
+
+    #loading.on {
+      display: flex
+    }
+
     .seg button.on {
       background: var(--cyan);
       color: #04121c;
@@ -1463,6 +1492,14 @@
         <td><kbd>Échap</kbd> · <kbd>R</kbd></td>
         <td>Pause · Recommencer</td>
       </tr>
+      <tr>
+        <td>⚓ Porte-avions</td>
+        <td>Catapulte : plein gaz maintenu · crosse sortie avec le train (jets)</td>
+      </tr>
+      <tr>
+        <td>🎮 Manette</td>
+        <td>Stick G : vol · stick D : palonnier · RT/LT : gaz · A freins · B train · Y caméra</td>
+      </tr>
     </table>
     <p class="hint" style="margin:6px 0 0">Relâchez une commande : les gouvernes reviennent au neutre et l'avion se
       stabilise.</p>
@@ -1513,6 +1550,9 @@
               globale</button></div>
         </div>
         <aside class="planpanel">
+          <span class="lbl">Zone de vol</span>
+          <div class="seg mappick" id="mapPick"></div>
+          <span class="hint" id="mapDesc"></span>
           <span class="lbl">Départ</span><select id="pFrom"></select>
           <span class="lbl">Destination</span><select id="pTo"></select>
           <span class="lbl">Points de passage</span>
@@ -1593,6 +1633,7 @@
   </div>
 
   <div id="toasts"></div>
+  <div id="loading">Génération de la carte…</div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
@@ -1600,9 +1641,10 @@
     // ════════════════════════ Configuration ════════════════════════
     const DEG = Math.PI / 180;
     const GEAR = 1.6;                                  // hauteur du centre de l'avion train sorti au sol
-    const RUNWAY_LEN = 800, RUNWAY_W = 30, ROAD_X = 90, ROAD_LEN = 3000, WORLD = 3200;
+    const RUNWAY_LEN = 800, RUNWAY_W = 30;
+    let ROAD_X = 90, ROAD_LEN = 3000, WORLD = 3200;    // dépendent de la carte chargée (loadMap)
     const FOG_COLOR = 0xbfd8ea, WP_RADIUS = 180;
-    const RADAR_RANGES = [500, 1000, 2000, 4000];
+    const RADAR_RANGES = [500, 1000, 2000, 4000, 8000];
 
     // Types d'avions : vitesses en m/s, taux en rad/s, carburant en %/s
     const AIRCRAFT = {
@@ -1644,13 +1686,8 @@
       tempete: { label: 'Tempête', base: 18, gust: 0.7, turb: 0.9 },
     };
 
-    const AIRPORTS = [
-      { id: 'VAL', name: 'Vallée', x: 0, z: 0, h: 0 },
-      { id: 'LAC', name: 'Lac Bleu', x: -1700, z: 1300, h: -0.6 },
-      { id: 'NOR', name: 'Col du Nord', x: 1700, z: 1700, h: 0.9 },
-      { id: 'SUD', name: 'Plateau Sud', x: 900, z: -2100, h: 1.75 },
-    ];
-    const LAKES = [{ x: -2250, z: 950, r: 240 }, { x: 1250, z: -1250, r: 160 }];
+    // Aérodromes, lacs et porte-avions de la carte chargée (remplis par loadMap à partir de MAPS)
+    const AIRPORTS = [], LAKES = [], CARRIERS = [];
 
     // ════════════════════════ Utilitaires ════════════════════════
     const $ = id => document.getElementById(id);
@@ -1668,7 +1705,10 @@
     function toLocal(ap, x, z) { const dx = x - ap.x, dz = z - ap.z, c = Math.cos(ap.h), s = Math.sin(ap.h); return { lx: dx * c - dz * s, lz: dx * s + dz * c }; }
     function toWorld(ap, lx, lz) { const c = Math.cos(ap.h), s = Math.sin(ap.h); return { x: ap.x + lx * c + lz * s, z: ap.z - lx * s + lz * c }; }
     function airportAt(x, z) {
-      for (const ap of AIRPORTS) { const p = toLocal(ap, x, z); if (Math.abs(p.lx) < RUNWAY_W / 2 + 6 && Math.abs(p.lz) < RUNWAY_LEN / 2 + 30) return ap; }
+      for (const ap of AIRPORTS) {
+        const p = toLocal(ap, x, z);
+        if (ap.carrier ? Math.abs(p.lx) <= CV.W / 2 && Math.abs(p.lz) <= CV.L / 2 : Math.abs(p.lx) < RUNWAY_W / 2 + 6 && Math.abs(p.lz) < RUNWAY_LEN / 2 + 30) return ap;
+      }
       return null;
     }
     function nearestAirport(x, z) { let b = null, bd = 1e9; for (const ap of AIRPORTS) { const d = Math.hypot(ap.x - x, ap.z - z); if (d < bd) { bd = d; b = ap; } } return b; }
@@ -1681,6 +1721,212 @@
     }
     const starStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 
+    // ════════════════════════ Cartes : relief procédural, aérodromes, porte-avions ════════════════════════
+    // Chaque carte = une fonction de relief (bruit de Perlin graine fixe) + vallées + aplanissement des aérodromes,
+    // lacs et route. Le relief est échantillonné sur une grille (TER) : le rendu et la physique lisent les mêmes triangles.
+    const SEA = -2;                                    // niveau de la mer (m)
+    const DECK_Y = 16;                                 // pont du porte-avions (18 m au-dessus de l'eau)
+    const MARGIN = 6000;                               // relief au-delà de la zone de vol : le monde ne s'arrête pas net
+    // Porte-avions, repère local (comme un aérodrome : +Z = proue) : pont 300 × 64 m, catapulte à l'avant,
+    // 4 brins d'arrêt à l'arrière, îlot à tribord (−X)
+    const CV = { L: 300, W: 64, CAT0: 10, CAT1: 146, START: -132, WIRES: [-100, -88, -76, -64], ISL: { x0: -31, x1: -19, z0: -25, z1: 35, top: 30 } };
+    const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    function mulberry32(a) {
+      return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    }
+    // Bruit de Perlin 2D à graine : n2 ≈ [−1, 1], fbm (fractal), ridge (crêtes, [0, 1])
+    function makeNoise(seed) {
+      const R = mulberry32(seed), p = new Uint8Array(512), gx = new Float32Array(256), gz = new Float32Array(256);
+      for (let i = 0; i < 256; i++) { p[i] = i; const a = R() * Math.PI * 2; gx[i] = Math.cos(a); gz[i] = Math.sin(a); }
+      for (let i = 255; i > 0; i--) { const j = Math.floor(R() * (i + 1)), t = p[i]; p[i] = p[j]; p[j] = t; }
+      for (let i = 0; i < 256; i++) p[i + 256] = p[i];
+      const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+      function n2(x, z) {
+        const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi, X = xi & 255, Z = zi & 255;
+        const aa = p[p[X] + Z], ba = p[p[X + 1] + Z], ab = p[p[X] + Z + 1], bb = p[p[X + 1] + Z + 1];
+        const u = fade(xf), v = fade(zf);
+        const g00 = gx[aa] * xf + gz[aa] * zf, g10 = gx[ba] * (xf - 1) + gz[ba] * zf;
+        const g01 = gx[ab] * xf + gz[ab] * (zf - 1), g11 = gx[bb] * (xf - 1) + gz[bb] * (zf - 1);
+        const x1 = g00 + u * (g10 - g00), x2 = g01 + u * (g11 - g01);
+        return (x1 + v * (x2 - x1)) * 1.41;
+      }
+      function fbm(x, z, oct = 4) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < oct; i++) { s += a * n2(x * f + i * 31.7, z * f - i * 12.9); n += a; a *= 0.5; f *= 2.03; } return s / n; }
+      function ridge(x, z, oct = 5) {
+        let s = 0, a = 0.5, f = 1, n = 0, w = 1;
+        for (let i = 0; i < oct; i++) { let r = 1 - Math.abs(n2(x * f + i * 17.3, z * f - i * 9.1)); r *= r * w; w = clamp(r * 1.6, 0, 1); s += a * r; n += a; a *= 0.5; f *= 2.1; }
+        return s / n;
+      }
+      return { n2, fbm, ridge };
+    }
+
+    // y: hauteur du terrain plat de l'aérodrome ('auto' = relief naturel au centre). carrier: porte-avions.
+    const MAPS = {
+      vallee: {
+        name: 'Vallée', world: 9000, seed: 11, haze: 0xbfd8ea, palette: 'temperate', clouds: [180, 560], trees: 1, treeline: 1050, snow: 1150, fields: 1,
+        desc: "Le terrain d'origine, agrandi : plaine et lacs au centre, massifs au nord et à l'est, côte ouest et porte-avions.",
+        airports: [
+          { id: 'VAL', name: 'Vallée', x: 0, z: 0, h: 0, y: 0 },
+          { id: 'LAC', name: 'Lac Bleu', x: -1700, z: 1300, h: -0.6, y: 0 },
+          { id: 'NOR', name: 'Col du Nord', x: 1700, z: 1700, h: 0.9, y: 0 },
+          { id: 'SUD', name: 'Plateau Sud', x: 900, z: -2100, h: 1.75, y: 0 },
+          { id: 'EST', name: "Plaine de l'Est", x: -6250, z: 600, h: -0.52, y: 'auto' },
+          { id: 'COT', name: 'Port-Côte', x: 4900, z: -4800, h: -0.26, y: 'auto' },
+          { id: 'CIM', name: 'Altiport des Cimes', x: -4100, z: 8250, h: -1.05, y: 'auto' },
+          { id: 'PA1', name: 'Porte-avions Albatros', x: 8000, z: 300, h: Math.PI / 2, carrier: true },
+        ],
+        lakes: [{ x: -2250, z: 950, r: 240, y: 0 }, { x: 1250, z: -1250, r: 160, y: 0 }, { x: -4800, z: 3900, r: 320 }],
+        road: { x: 90, len: 3000 },
+        relief(x, z, N) {
+          const d = Math.hypot(x, z);
+          let h = Math.max(0, N.fbm(x / 2200, z / 2200, 4) * 420 + 40) * smoothstep(900, 3400, d);
+          const rm = smoothstep(-0.05, 0.3, N.fbm(x / 7000 + 7.7, z / 7000 - 3.1, 2)) * smoothstep(2200, 5000, d);
+          h += Math.pow(N.ridge(x / 2800, z / 2800, 5), 1.7) * 1500 * rm;
+          const coast = 5300 + N.fbm(z / 3200 + 5, 1.7, 3) * 900;            // côte ouest (+X)
+          return lerp(h, -45, smoothstep(coast - 200, coast + 1100, x));
+        }
+      },
+      alpes: {
+        name: 'Hautes-Alpes', world: 10000, seed: 23, haze: 0xc6dcef, palette: 'alpine', clouds: [2300, 3400], trees: 1.1, treeline: 1750, snow: 1950, fields: 0.6,
+        desc: 'Vallées encaissées entre des sommets à près de 3 000 m, glaciers, lacs de montagne et un altiport perché.',
+        airports: [
+          { id: 'GRE', name: 'Grenelle', x: 250, z: 0, h: -0.124, y: 'auto' },
+          { id: 'CHA', name: 'Chamois', x: -6000, z: 4250, h: -1.212, y: 'auto' },
+          { id: 'SIO', name: 'Sion-le-Haut', x: 6250, z: -2250, h: 1.166, y: 'auto' },
+          { id: 'LCV', name: 'Lac Vert', x: -2750, z: -6750, h: -1.893, y: 'auto' },
+          { id: 'GLA', name: 'Altiport du Glacier', x: 5500, z: 7150, h: -1.31, y: 'auto' },
+        ],
+        lakes: [{ x: -7200, z: -6680, r: 380 }, { x: -1050, z: 7900, r: 300 }],
+        corridors: [
+          { w0: 380, w1: 1700, pts: [[-1500, -10600, 80], [-500, -6000, 120], [500, -2000, 180], [0, 2000, 260], [-1200, 6000, 380], [-800, 10600, 450]] },
+          { w0: 330, w1: 1500, pts: [[0, 2000, 260], [-4000, 3500, 520], [-8000, 5000, 700], [-10600, 4500, 760]] },
+          { w0: 330, w1: 1500, pts: [[500, -2000, 180], [4500, -3000, 320], [8000, -1500, 600], [10600, 0, 700]] },
+          { w0: 300, w1: 1400, pts: [[-500, -6000, 120], [-5000, -7500, 250], [-9000, -6000, 420]] },
+        ],
+        relief(x, z, N) { return 320 + Math.pow(N.ridge(x / 4200, z / 4200, 6), 1.35) * 3000 + N.fbm(x / 1100, z / 1100, 3) * 140; }
+      },
+      archipel: {
+        name: 'Archipel', world: 11000, seed: 37, haze: 0xbcdcf0, palette: 'tropical', clouds: [450, 1000], trees: 0.9, treeline: 900, snow: 1e9, fields: 0.5, sea: true,
+        desc: "Océan semé d'îles, un volcan de 1 300 m, plages, et un porte-avions au large.",
+        airports: [
+          { id: 'POR', name: 'Port-Royal', x: 1900, z: -500, h: 0.35, y: 4 },
+          { id: 'VOL', name: 'Volcan', x: -4200, z: -3150, h: -0.26, y: 'auto' },
+          { id: 'COR', name: 'Corail', x: 5900, z: -2650, h: 0.79, y: 'auto' },
+          { id: 'ILE', name: 'Île Haute', x: 5000, z: 5200, h: -0.9, y: 'auto' },
+          { id: 'PA1', name: 'Porte-avions Albatros', x: 0, z: -6200, h: Math.PI / 2, carrier: true },
+        ],
+        lakes: [],
+        islands: [[0, 2500, 3800, 620], [-6500, -3000, 2700, 1300, 1], [6500, -4500, 2400, 380], [5500, 6000, 2100, 480], [-5200, 6600, 1300, 220],
+          [9200, 800, 700, 90], [-9500, 2200, 800, 120], [2500, -9500, 650, 70], [-3000, -8800, 900, 140], [8800, -8800, 600, 60], [-9800, -8200, 700, 100]],
+        relief(x, z, N) {
+          let h = -60 + N.fbm(x / 5000, z / 5000, 2) * 25;
+          const wob = N.fbm(x / 1700, z / 1700, 3), det = N.fbm(x / 650, z / 650, 3);
+          for (const [cx, cz, r, pk, volc] of this.islands) {
+            const t = 1 - Math.hypot(x - cx, z - cz) * (1 + wob * 0.45) / r;
+            if (t <= -0.05) continue;
+            let v = -45 + 52 * smoothstep(-0.05, 0.12, t) + pk * Math.pow(smoothstep(0.22, 1, t), 1.6) + det * Math.min(70, pk * 0.2) * smoothstep(0.15, 0.6, t);
+            if (volc) v -= 340 * smoothstep(0.86, 0.97, t);
+            h = Math.max(h, v);
+          }
+          return h;
+        }
+      },
+      canyon: {
+        name: 'Canyons', world: 10000, seed: 53, haze: 0xe6d6bd, palette: 'desert', clouds: [1500, 2300], trees: 0.15, treeline: 700, snow: 1e9, fields: 0,
+        desc: 'Plateau désertique à 400 m, mesas en gradins et gorges profondes à suivre en rase-mottes.',
+        airports: [
+          { id: 'BUT', name: 'Butte Haute', x: 3300, z: 300, h: -0.26, y: 'auto' },
+          { id: 'OAS', name: 'Oasis', x: -3450, z: 3300, h: 0.26, y: 'auto' },
+          { id: 'MES', name: 'Mesa Rouge', x: 5700, z: -3600, h: 1.05, y: 'auto' },
+          { id: 'RIO', name: 'Rio Seco', x: 3300, z: 4050, h: -1.57, y: 'auto' },
+          { id: 'PLA', name: 'Grand Plateau', x: -4050, z: -7200, h: 0.26, y: 'auto' },
+        ],
+        lakes: [],
+        relief(x, z, N) {
+          const v = Math.max(0, N.fbm(x / 2600, z / 2600, 4) + 0.08) * 900, st = 85, q = Math.floor(v / st);
+          const h = 380 + (q + smoothstep(0.7, 0.95, v / st - q)) * st;                          // mesas en gradins
+          const c = Math.abs(N.fbm(x / 9000 + 3.3, z / 9000 - 8.2, 4));                       // réseau de gorges
+          const floor = 14 - 24 * (1 - smoothstep(0.006, 0.014, c));                           // rivière sous le niveau de la mer
+          return lerp(floor, h, smoothstep(0.03, 0.1, c));
+        }
+      },
+    };
+    const MAP_ORDER = ['vallee', 'alpes', 'archipel', 'canyon'];
+
+    function segDist(px, pz, ax, az, bx, bz, out) {
+      const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+      let t = L2 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+      out[0] = Math.hypot(px - ax - dx * t, pz - az - dz * t); out[1] = t; return out;
+    }
+    // Relief avant aplanissement : relief de la carte, vallées (couloirs à fond plat), retour à la mer au bord du monde
+    const _sd = [0, 0];
+    function naturalHeight(map, N, x, z) {
+      let h = map.relief(x, z, N);
+      if (map.corridors) for (const c of map.corridors) {
+        let best = 1e9, fy = 0;
+        for (let i = 1; i < c.pts.length; i++) {
+          const A = c.pts[i - 1], B = c.pts[i]; segDist(x, z, A[0], A[1], B[0], B[1], _sd);
+          if (_sd[0] < best) { best = _sd[0]; fy = A[2] + (B[2] - A[2]) * _sd[1]; }
+        }
+        if (best < c.w1) h = lerp(fy + N.fbm(x / 700, z / 700, 2) * 14, h, smoothstep(c.w0, c.w1, best));
+      }
+      const e = Math.max(Math.abs(x), Math.abs(z)) - map.world;
+      if (e > MARGIN - 2600) h = lerp(h, -40, smoothstep(MARGIN - 2600, MARGIN - 300, e));
+      return h;
+    }
+    // Grille de hauteurs (N × N cellules sur ±E) avec aérodromes, lacs et route aplanis
+    function genHeights(map, N) {
+      const NZ = makeNoise(map.seed), E = map.world + MARGIN, cell = 2 * E / N, n1 = N + 1;
+      const nat = (x, z) => naturalHeight(map, NZ, x, z);
+      const aps = map.airports.map(a => Object.assign({}, a, {
+        y: a.carrier ? DECK_Y : (a.y === 'auto' ? Math.max(0, Math.round(nat(a.x, a.z))) : a.y)
+      }));
+      const lakes = (map.lakes || []).map(l => Object.assign({}, l, { y: l.y == null ? Math.max(0, Math.round(nat(l.x, l.z))) : l.y }));
+      const flat = aps.filter(a => !a.carrier).map(a => ({ a, c: Math.cos(a.h), s: Math.sin(a.h) }));
+      const ships = aps.filter(a => a.carrier), road = map.road;
+      const AX0 = -140 - cell, AX1 = 90 + cell, AZ = RUNWAY_LEN / 2 + 340 + cell, BL = 650;
+      const H = new Float32Array(n1 * n1);
+      for (let j = 0; j < n1; j++) for (let i = 0; i < n1; i++) {
+        const x = -E + i * cell, z = -E + j * cell;
+        let h = nat(x, z);
+        for (const l of lakes) { const d = Math.hypot(x - l.x, z - l.z) - (l.r + 60 + cell); if (d < 450) h = lerp(l.y, h, smoothstep(0, 450, d)); }
+        if (road) {
+          const d = Math.hypot(Math.max(Math.abs(x - road.x) - 40 - cell, 0), Math.max(Math.abs(z) - road.len / 2 - 80, 0));
+          if (d < 350) h = lerp(0, h, smoothstep(0, 350, d));
+        }
+        for (const { a, c, s } of flat) {
+          const dx = x - a.x, dz = z - a.z, lx = dx * c - dz * s, lz = dx * s + dz * c;
+          const d = Math.hypot(Math.max(AX0 - lx, 0, lx - AX1), Math.max(Math.abs(lz) - AZ, 0));
+          if (d < BL) h = lerp(a.y, h, smoothstep(0, BL, d));
+        }
+        for (const a of ships) { const d = Math.hypot(x - a.x, z - a.z); if (d < 1300) h = Math.min(h, lerp(-40, h, smoothstep(500, 1300, d))); }
+        H[j * n1 + i] = h;
+      }
+      return { E, N, cell, H, aps, lakes, noise: NZ };
+    }
+
+    const TER = { E: 1, N: 1, cell: 1, H: new Float32Array(4) };
+    // Hauteur du relief : interpolation sur les mêmes triangles que le maillage (diagonale (i+1,j)–(i,j+1))
+    function terrainHeight(x, z) {
+      const E = TER.E, N = TER.N, H = TER.H, n1 = N + 1;
+      let fx = (x + E) / TER.cell, fz = (z + E) / TER.cell;
+      fx = fx < 0 ? 0 : fx > N - 1e-6 ? N - 1e-6 : fx; fz = fz < 0 ? 0 : fz > N - 1e-6 ? N - 1e-6 : fz;
+      const i = fx | 0, j = fz | 0; fx -= i; fz -= j;
+      const k = j * n1 + i, a = H[k], b = H[k + 1], c = H[k + n1], d = H[k + n1 + 1];
+      return fx + fz <= 1 ? a + (b - a) * fx + (c - a) * fz : d + (c - d) * (1 - fx) + (b - d) * (1 - fz);
+    }
+    // Pente locale (gradient du triangle sous le point) → out = [dh/dx, dh/dz]
+    function terrainGrad(x, z, out) {
+      const E = TER.E, N = TER.N, H = TER.H, n1 = N + 1, cl = TER.cell;
+      let fx = (x + E) / cl, fz = (z + E) / cl;
+      fx = fx < 0 ? 0 : fx > N - 1e-6 ? N - 1e-6 : fx; fz = fz < 0 ? 0 : fz > N - 1e-6 ? N - 1e-6 : fz;
+      const i = fx | 0, j = fz | 0; fx -= i; fz -= j;
+      const k = j * n1 + i, a = H[k], b = H[k + 1], c = H[k + n1], d = H[k + n1 + 1];
+      if (fx + fz <= 1) { out[0] = (b - a) / cl; out[1] = (c - a) / cl; } else { out[0] = (d - c) / cl; out[1] = (d - b) / cl; }
+      return out;
+    }
+
     // ════════════════════════ Sauvegarde ════════════════════════
     const Store = (() => {
       const KEY = 'skyway.sim.v1'; let mem = null, ok = true;
@@ -1692,7 +1938,7 @@
     })();
     const DB = (() => {
       const d = Store.load() || {};
-      const settings = Object.assign({ invert: false, sound: true, ac: 'sirocco', gfx: 'auto', dynRes: true }, d.settings);
+      const settings = Object.assign({ invert: false, sound: true, ac: 'sirocco', gfx: 'auto', dynRes: true, map: 'vallee' }, d.settings);
       settings.wx = Object.assign({ preset: 'brise', from: 270, base: 5, gust: 0.25, turb: 0.2 }, settings.wx);
       if (!AIRCRAFT[settings.ac]) settings.ac = 'sirocco';
       return { flights: Array.isArray(d.flights) ? d.flights : [], best: Object.assign({ maxAlt: 0, maxSpeed: 0, longest: 0, softest: null }, d.best), settings };
@@ -1704,12 +1950,14 @@
     // ════════════════════════ Profil graphique : détection du GPU, niveaux de qualité ════════════════════════
     // GPU dédié → MSAA, ombres fines, plus d'arbres et de nuages ; GPU intégré / mobile → réglages allégés ;
     // rendu logiciel (pas de GPU) → profil minimal. En vol, la résolution dynamique ajuste le pixelRatio.
-    // pr = plafond du devicePixelRatio, prMin = plancher de la résolution dynamique, box = demi-taille du volume d'ombre (m).
+    // pr = plafond du devicePixelRatio, prMin = plancher de la résolution dynamique, box = demi-taille du volume d'ombre (m),
+    // fog = visibilité (m), terrN = cellules de la grille de relief par côté, cmap = texture couleur du sol (px),
+    // tex = résolution des textures procédurales, treeDen = arbres / km², treeMax = plafond d'arbres par carte.
     const GFX_TIERS = {
-      low:    { label: 'Bas',   pr: 1,    prMin: 0.5,  aa: false, shadows: false, shadowSize: 512,  soft: false, box: 60,  aniso: 2,  trees: 450,  fields: 60,  clouds: 35,  puffs: 250 },
-      medium: { label: 'Moyen', pr: 1.25, prMin: 0.6,  aa: true,  shadows: true,  shadowSize: 1024, soft: false, box: 60,  aniso: 4,  trees: 800,  fields: 100, clouds: 55,  puffs: 450 },
-      high:   { label: 'Élevé', pr: 2,    prMin: 0.75, aa: true,  shadows: true,  shadowSize: 2048, soft: true,  box: 60,  aniso: 8,  trees: 1100, fields: 120, clouds: 75,  puffs: 700 },
-      ultra:  { label: 'Ultra', pr: 2.5,  prMin: 1,    aa: true,  shadows: true,  shadowSize: 4096, soft: true,  box: 100, aniso: 16, trees: 1700, fields: 160, clouds: 110, puffs: 900 }
+      low:    { label: 'Bas',   pr: 1,    prMin: 0.5,  aa: false, shadows: false, shadowSize: 512,  soft: false, box: 60,  aniso: 2,  fog: 2800, terrN: 160, cmap: 1024, tex: 1, treeDen: 22, treeMax: 9000,  fields: 60,  clouds: 45,  puffs: 250 },
+      medium: { label: 'Moyen', pr: 1.25, prMin: 0.6,  aa: true,  shadows: true,  shadowSize: 1024, soft: false, box: 60,  aniso: 4,  fog: 3400, terrN: 224, cmap: 1024, tex: 1, treeDen: 40, treeMax: 20000, fields: 100, clouds: 70,  puffs: 450 },
+      high:   { label: 'Élevé', pr: 2,    prMin: 0.75, aa: true,  shadows: true,  shadowSize: 2048, soft: true,  box: 60,  aniso: 8,  fog: 4200, terrN: 288, cmap: 2048, tex: 2, treeDen: 70, treeMax: 40000, fields: 120, clouds: 100, puffs: 700 },
+      ultra:  { label: 'Ultra', pr: 2.5,  prMin: 1,    aa: true,  shadows: true,  shadowSize: 4096, soft: true,  box: 100, aniso: 16, fog: 5200, terrN: 352, cmap: 2048, tex: 2, treeDen: 110, treeMax: 70000, fields: 160, clouds: 150, puffs: 900 }
     };
     const GFX_ORDER = ['low', 'medium', 'high', 'ultra'];
     function classifyGPU(name, o = {}) {
@@ -1748,6 +1996,9 @@
       const q = new URLSearchParams(location.search).get('gfx');   // ?gfx=low|medium|high|ultra|auto (survit sans localStorage)
       if (q === 'auto' || GFX_TIERS[q]) DB.settings.gfx = q;
       if (DB.settings.gfx !== 'auto' && !GFX_TIERS[DB.settings.gfx]) DB.settings.gfx = 'auto';
+      const m = new URLSearchParams(location.search).get('map');   // ?map=vallee|alpes|archipel|canyon
+      if (MAPS[m]) DB.settings.map = m;
+      if (!MAPS[DB.settings.map]) DB.settings.map = 'vallee';
     }
     const GFX = Object.assign({ id: DB.settings.gfx === 'auto' ? GPU.tier : DB.settings.gfx }, GFX_TIERS[DB.settings.gfx === 'auto' ? GPU.tier : DB.settings.gfx]);
     function setGfx(id) {
@@ -1760,13 +2011,14 @@
 
     // ════════════════════════ État ════════════════════════
     let scene, camera, renderer, sunLight, sky, sunDisc, plane, truck, maxAniso = 1;
-    const truckWheels = [], mountains = [], clouds = [], particles = [], keys = {}, trail = [], socks = [];
+    const truckWheels = [], clouds = [], particles = [], keys = {}, trail = [], socks = [];
     const TEX = {}, MAT = {}, GEO = {};
     const S = {
       throttle: 0, speed: 0, roll: 0, vy: 0, heading: 0, onGround: true, crashed: false, paused: false, userPaused: false,
       invert: DB.settings.invert, cam: 0, fuel: 100, burn: 0, rpm: 0, g: 1, aoa: 0, gs: 0, vs: 0, accel: 0,
       pitch: 0, bank: 0, hdg: 0, alt: 0, agl: 0, ground: 0, airborne: false, flight: null, lastTouch: null, lastLat: 0,
-      refueling: false, braking: false, terrainWarn: false, gearWarn: false, home: 'VAL',
+      refueling: false, braking: false, terrainWarn: false, gearWarn: false, home: 'VAL', groundY: 0,
+      cat: false, catHold: 0, trap: null,                 // porte-avions : catapulte, brin d'arrêt accroché
       ctl: { p: 0, r: 0, y: 0 }, gearPos: 1, gearTarget: 1, reverse: false,
       wAir: 0, wave: 0, turbLevel: 0, head: 0, cross: 0, drift: 0, windSpd: 0, windFrom: 0,
       vel: new THREE.Vector3(), prevVel: new THREE.Vector3(),
@@ -1801,16 +2053,12 @@
     }
     // Ondes de relief, ascendances / rabattants et turbulence (bruit filtré, indépendant du framerate)
     function updateAirMass(dt, x, y, z, agl) {
-      const ws = Math.hypot(windNow.x, windNow.z), wdx = ws ? windNow.x / ws : 0, wdz = ws ? windNow.z / ws : 0;
-      let wave = 0, terr = 0;
-      for (const m of mountains) {
-        const dx = x - m.x, dz = z - m.z, d = Math.hypot(dx, dz), R = m.r * 1.8;
-        if (d >= R || d < 1) continue;
-        const fall = 1 - d / R, hf = clamp(1 - (y - m.h) / 400, 0, 1);
-        if (hf <= 0) continue;
-        wave += -((dx * wdx + dz * wdz) / d) * fall * hf * ws * 0.35;
-        terr += fall * hf;
-      }
+      const ws = Math.hypot(windNow.x, windNow.z);
+      // Le vent qui remonte une pente s'élève (ascendance au vent), il plonge sous le vent ; effet qui s'estompe avec la hauteur
+      const gx = (terrainHeight(x + 120, z) - terrainHeight(x - 120, z)) / 240, gz = (terrainHeight(x, z + 120) - terrainHeight(x, z - 120)) / 240;
+      const hf = clamp(1 - agl / 700, 0, 1);
+      const wave = clamp((windNow.x * gx + windNow.z * gz) * 0.6, -0.45 * ws, 0.45 * ws) * hf;
+      const terr = Math.min(2, Math.hypot(gx, gz) * 2.5) * hf;
       const ti = WX.turb * (0.25 + ws / 14) * (1 + terr * 1.5) * (agl < 5 ? 0.3 : 1);
       const sq = Math.sqrt(dt);
       turbV += -turbV * 1.2 * dt + rnd(-1, 1) * ti * 4 * sq;
@@ -1829,7 +2077,7 @@
     }
     function texRep(tex, rx, ry) { const t = tex.clone(); t.needsUpdate = true; t.repeat.set(rx, ry); return t; }
     function noise(g, s, amp) {
-      const img = g.getImageData(0, 0, s, s), d = img.data;
+      const img = g.getImageData(0, 0, g.canvas.width, g.canvas.height), d = img.data;   // toute la toile (même dessinée à l'échelle)
       for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - .5) * amp; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
       g.putImageData(img, 0, 0);
     }
@@ -1840,8 +2088,10 @@
         g.fillStyle = gr; g.fillRect(cx - r, cy - r, 2 * r, 2 * r);
       }
     }
+    // Texture dessinée sur une toile GFX.tex fois plus fine (niveaux Élevé / Ultra) avec les mêmes coordonnées logiques
+    const hiTex = (size, draw, rx, ry) => canvasTex(size * GFX.tex, (g, s) => { g.scale(GFX.tex, GFX.tex); draw(g, size); }, rx, ry);
     function makeAsphalt(rx, ry) {
-      return canvasTex(512, (g, s) => {
+      return hiTex(512, (g, s) => {
         g.fillStyle = '#45484e'; g.fillRect(0, 0, s, s); noise(g, s, 34);
         for (let i = 0; i < 30; i++) blob(g, s, rnd(0, s), rnd(0, s), rnd(20, 60), 'rgba(20,20,24,.18)');
         g.lineCap = 'round';
@@ -1863,7 +2113,14 @@
       });
     }
     function buildTextures() {
-      TEX.grass = canvasTex(512, (g, s) => {
+      // Détail du sol : bruit gris centré sur 0,5, multiplié par la texture couleur du relief dans le shader du terrain
+      TEX.detail = hiTex(256, (g, s) => {
+        g.fillStyle = '#808080'; g.fillRect(0, 0, s, s);
+        for (let i = 0; i < 90; i++) blob(g, s, rnd(0, s), rnd(0, s), rnd(8, 40), Math.random() < .5 ? 'rgba(0,0,0,.16)' : 'rgba(255,255,255,.13)');
+        for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '0,0,0' : '255,255,255'},${rnd(.05, .2)})`; g.fillRect(rnd(0, s), rnd(0, s), 1, rnd(1, 3)); }
+        noise(g, s, 46);
+      });
+      TEX.grass = hiTex(512, (g, s) => {
         g.fillStyle = '#6d9a4a'; g.fillRect(0, 0, s, s);
         for (let i = 0; i < 70; i++) blob(g, s, rnd(0, s), rnd(0, s), rnd(20, 70), Math.random() < .5 ? 'rgba(40,80,30,.25)' : 'rgba(150,180,90,.22)');
         for (let i = 0; i < 14000; i++) { g.fillStyle = `hsla(${rnd(80, 110)},${rnd(30, 55)}%,${rnd(25, 50)}%,.55)`; g.fillRect(rnd(0, s), rnd(0, s), 1, rnd(1, 3)); }
@@ -1876,7 +2133,7 @@
           const y = rnd(0, s); g.moveTo(0, y); g.bezierCurveTo(s * .3, y + rnd(-20, 20), s * .6, y + rnd(-20, 20), s, y); g.stroke();
         }
       }, 6, 4);
-      const field = (a, b) => canvasTex(256, (g, s) => { g.fillStyle = a; g.fillRect(0, 0, s, s); g.fillStyle = b; for (let x = 0; x < s; x += 16) g.fillRect(x, 0, 7, s); noise(g, s, 30); });
+      const field = (a, b) => hiTex(256, (g, s) => { g.fillStyle = a; g.fillRect(0, 0, s, s); g.fillStyle = b; for (let x = 0; x < s; x += 16) g.fillRect(x, 0, 7, s); noise(g, s, 30); });
       TEX.fields = [field('#7fa64f', '#6a8f40'), field('#c8b56a', '#b29d55'), field('#8a6b4a', '#7a5c3e'), field('#94b85e', '#7ea24c')];
       TEX.water = canvasTex(256, (g, s) => {
         g.fillStyle = '#2c6e9c'; g.fillRect(0, 0, s, s);
@@ -1912,8 +2169,8 @@
     function init() {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(FOG_COLOR);
-      scene.fog = new THREE.Fog(FOG_COLOR, 450, 2800);
-      camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.5, 6000);
+      scene.fog = new THREE.Fog(FOG_COLOR, GFX.fog * 0.16, GFX.fog);                   // visibilité selon le niveau graphique
+      camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.5, GFX.fog + 1500);
       // powerPreference : sur un portable à double GPU, demande le GPU dédié
       renderer = new THREE.WebGLRenderer({ antialias: GFX.aa, powerPreference: 'high-performance' });
       DYN.target = DYN.pr = Math.min(devicePixelRatio || 1, GFX.pr);
@@ -1940,28 +2197,22 @@
       MAT.runway = new THREE.MeshLambertMaterial({ map: makeAsphalt(1, RUNWAY_LEN / RUNWAY_W), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       MAT.apron = new THREE.MeshLambertMaterial({ map: makeAsphalt(1, 3), color: 0xc4c4c4, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       MAT.clearing = new THREE.MeshLambertMaterial({ map: texRep(TEX.grass, 4, 24), color: 0xd8e6b0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      MAT.clearingSand = new THREE.MeshLambertMaterial({ map: texRep(TEX.detail, 6, 30), color: 0xd8bd8a, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
       MAT.edgeLight = new THREE.MeshBasicMaterial({ color: 0xffe08a });
       MAT.thrLight = new THREE.MeshBasicMaterial({ color: 0x6dff8a });
       GEO.light = new THREE.BoxGeometry(0.5, 0.5, 0.5);
       GEO.unitPlane = new THREE.PlaneGeometry(1, 1);
 
       createSky();
-      createGround();
-      createLakes();
-      AIRPORTS.forEach(buildAirport);
-      createRoad();
-      createMountains();
-      createTrees();
       createClouds();
       truck = createTruck();
-      truck.position.set(ROAD_X - 3.5, 0, -RUNWAY_LEN / 2 + 60);
       scene.add(truck);
       plane = createPlane(AC);
       scene.add(plane);
       applyAircraftCamera();
 
       initUI();
-      placeAtAirport('VAL');
+      loadMap(DB.settings.map);
 
       addEventListener('resize', onResize);
       addEventListener('keydown', onKeyDown);
@@ -1969,7 +2220,7 @@
       addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
       addEventListener('pointerdown', () => Snd.init());
 
-      toast('Bienvenue ! T : avion & météo · M : carte · Z : mettre les gaz.', 'info');
+      toast(`Bienvenue sur la carte ${MAP.name} ! T : avion & météo · M : carte et zones de vol · Z : mettre les gaz.`, 'info');
       animate();
     }
 
@@ -1989,44 +2240,393 @@
     }
 
     function blockedForScenery(x, z, margin) {
-      for (const ap of AIRPORTS) { const p = toLocal(ap, x, z); if (p.lx > -115 - margin && p.lx < 70 + margin && Math.abs(p.lz) < RUNWAY_LEN / 2 + 300 + margin) return true; }
-      if (Math.abs(x - ROAD_X) < 14 + margin && Math.abs(z) < ROAD_LEN / 2 + margin) return true;
+      for (const ap of AIRPORTS) {
+        if (ap.carrier) continue;
+        const p = toLocal(ap, x, z); if (p.lx > -115 - margin && p.lx < 70 + margin && Math.abs(p.lz) < RUNWAY_LEN / 2 + 300 + margin) return true;
+      }
+      if (ROAD_LEN && Math.abs(x - ROAD_X) < 14 + margin && Math.abs(z) < ROAD_LEN / 2 + margin) return true;
       return LAKES.some(l => Math.hypot(l.x - x, l.z - z) < l.r + 18 + margin);
     }
 
-    function createGround() {
-      const ground = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshLambertMaterial({ map: texRep(TEX.grass, 400, 400) }));
-      ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
-      for (let i = 0; i < GFX.fields; i++) {
-        const w = rnd(80, 340), l = rnd(80, 340), x = rnd(-2800, 2800), z = rnd(-2800, 2800);
-        if (blockedForScenery(x, z, Math.max(w, l) / 2)) continue;
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), new THREE.MeshLambertMaterial({
-          map: texRep(TEX.fields[i % TEX.fields.length], w / 40, l / 40), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1
-        }));
-        m.rotation.x = -Math.PI / 2; m.rotation.z = Math.random() * Math.PI;
-        m.position.set(x, 0.05, z); m.receiveShadow = true; scene.add(m);
+    // ════════════════════════ Surface sous l'avion : relief, eau, pont du porte-avions ════════════════════════
+    const DK = { ap: null, lx: 0, lz: 0 };
+    // Point (x, z) sur le pont d'un porte-avions → repère local du navire (objet partagé : copier lx / lz avant un second appel)
+    function deckAt(x, z) {
+      for (const ap of CARRIERS) {
+        const dx = x - ap.x, dz = z - ap.z; if (dx * dx + dz * dz > 30000) continue;
+        const c = Math.cos(ap.h), s = Math.sin(ap.h), lx = dx * c - dz * s, lz = dx * s + dz * c;
+        if (Math.abs(lx) <= CV.W / 2 && Math.abs(lz) <= CV.L / 2) { DK.ap = ap; DK.lx = lx; DK.lz = lz; return DK; }
+      }
+      return null;
+    }
+    // Hauteur de ce qui est sous le point : pont, surface de l'eau ou relief
+    function groundAt(x, z) { return deckAt(x, z) ? DECK_Y : Math.max(terrainHeight(x, z), SEA); }
+    const SURF = { y: 0, water: false, lake: false, deck: null, slope: 0 }, _gr = [0, 0];
+    function surfaceAt(x, z) {
+      const s = SURF; s.water = s.lake = false; s.deck = null; s.slope = 0;
+      const dk = deckAt(x, z);
+      if (dk) { s.y = DECK_Y; s.deck = dk; return s; }
+      for (const l of LAKES) if ((x - l.x) ** 2 + (z - l.z) ** 2 < l.r * l.r) { s.y = l.y + 0.2; s.water = s.lake = true; return s; }
+      const h = terrainHeight(x, z);
+      if (h < SEA) { s.y = SEA; s.water = true; return s; }
+      terrainGrad(x, z, _gr); s.y = h; s.slope = Math.hypot(_gr[0], _gr[1]);
+      return s;
+    }
+    // Îlot du porte-avions (le seul obstacle au-dessus du pont)
+    function carrierHit(x, y, z) {
+      const dk = deckAt(x, z), I = CV.ISL;
+      return !!dk && y < DECK_Y + I.top && dk.lx > I.x0 && dk.lx < I.x1 && dk.lz > I.z0 && dk.lz < I.z1;
+    }
+
+    // ════════════════════════ Construction d'une carte ════════════════════════
+    let MAP = null, worldGroup = null, PEAKS = [], MAPIMG = null;
+    const TILE = 32;                                     // cellules de relief par tuile (culling par tuile)
+    const PALETTES = {
+      temperate: { grass: [108, 152, 72], dry: [156, 166, 92], forest: [56, 96, 48], high: [128, 122, 92], rock: [118, 113, 106], beach: [206, 192, 142], seabed: [150, 142, 104], deep: [30, 72, 92], leaves: [0x2f7d3b, 0x4f9a3a], trunk: 0x7a4e2d },
+      alpine: { grass: [92, 142, 66], dry: [140, 158, 88], forest: [40, 80, 50], high: [124, 120, 98], rock: [112, 110, 110], beach: [190, 182, 150], seabed: [120, 128, 110], deep: [30, 70, 90], leaves: [0x24603a, 0x3a7a46], trunk: 0x5e4030, conifer: true },
+      tropical: { grass: [82, 156, 62], dry: [128, 172, 74], forest: [40, 108, 46], high: [96, 88, 76], rock: [84, 76, 72], beach: [228, 214, 164], seabed: [196, 206, 168], deep: [18, 78, 112], leaves: [0x3f9a3a, 0x6ab546], trunk: 0x8a6440 },
+      desert: { sand: [204, 168, 114], light: [222, 196, 148], wallA: [168, 88, 56], wallB: [208, 140, 88], floor: [214, 198, 154], oasis: [118, 142, 78], forest: [96, 116, 64], beach: [214, 198, 154], seabed: [150, 130, 96], deep: [60, 96, 100], leaves: [0x6f8a3e, 0x8f9a4a], trunk: 0x7a5a3a, desert: true },
+    };
+    const SNOW = [240, 244, 248];
+    const mixIn = (o, c, t) => { o[0] += (c[0] - o[0]) * t; o[1] += (c[1] - o[1]) * t; o[2] += (c[2] - o[2]) * t; return o; };
+    // Couleur du sol (0–255) selon l'altitude h, la pente sl, une variation n ∈ [−1, 1], la densité de forêt fo et la proximité de l'eau wn
+    function terrainColor(P, h, sl, n, fo, o, wn) {
+      if (h < SEA) { o[0] = P.seabed[0]; o[1] = P.seabed[1]; o[2] = P.seabed[2]; return mixIn(o, P.deep, clamp((SEA - h) / 35, 0, 1)); }
+      if (h < SEA + 4 && wn > 0.4) { o[0] = P.beach[0]; o[1] = P.beach[1]; o[2] = P.beach[2]; return o; }   // plages et berges
+      if (P.desert) {
+        o[0] = P.sand[0]; o[1] = P.sand[1]; o[2] = P.sand[2]; mixIn(o, P.light, 0.5 + n * 0.5);
+        const band = 0.5 + 0.5 * Math.sin(h / 6.5 + n * 1.5);
+        const wr = P.wallA[0] + (P.wallB[0] - P.wallA[0]) * band, wg = P.wallA[1] + (P.wallB[1] - P.wallA[1]) * band, wb = P.wallA[2] + (P.wallB[2] - P.wallA[2]) * band;
+        const tw = smoothstep(0.16, 0.5, sl);
+        o[0] += (wr - o[0]) * tw; o[1] += (wg - o[1]) * tw; o[2] += (wb - o[2]) * tw;          // parois en strates
+        if (h < 45) mixIn(o, P.floor, smoothstep(45, 22, h) * (1 - tw));
+        if (h < 11) mixIn(o, P.oasis, smoothstep(11, 3, h) * 0.8 * (1 - tw));                  // végétation des berges
+        return mixIn(o, P.forest, fo * 0.5);
+      }
+      o[0] = P.grass[0]; o[1] = P.grass[1]; o[2] = P.grass[2];
+      mixIn(o, P.dry, clamp(0.5 + n * 0.6, 0, 1));
+      mixIn(o, P.forest, fo * 0.6);
+      mixIn(o, P.high, smoothstep(MAP.treeline - 250, MAP.treeline + 300, h + n * 80));
+      mixIn(o, P.rock, Math.max(smoothstep(0.42, 0.85, sl + n * 0.08), smoothstep(MAP.snow - 150, MAP.snow + 250, h) * 0.5));
+      return mixIn(o, SNOW, smoothstep(MAP.snow - 40, MAP.snow + 120, h + n * 140) * (1 - smoothstep(0.8, 1.3, sl)));
+    }
+    // Échantillonnage bilinéaire d'une grille par sommet (pente, forêt)
+    function sampleGrid(A, x, z) {
+      const E = TER.E, N = TER.N, n1 = N + 1;
+      let fx = (x + E) / TER.cell, fz = (z + E) / TER.cell;
+      fx = fx < 0 ? 0 : fx > N - 1e-6 ? N - 1e-6 : fx; fz = fz < 0 ? 0 : fz > N - 1e-6 ? N - 1e-6 : fz;
+      const i = fx | 0, j = fz | 0; fx -= i; fz -= j;
+      const k = j * n1 + i, a = A[k] + (A[k + 1] - A[k]) * fx, b = A[k + n1] + (A[k + n1 + 1] - A[k + n1]) * fx;
+      return a + (b - a) * fz;
+    }
+    // Pente et densité de forêt par sommet de la grille
+    function prepareGrids() {
+      const { E, N, cell, H } = TER, n1 = N + 1, NZ = TER.noise, desert = !!PALETTES[MAP.palette].desert;
+      TER.SL = new Float32Array(n1 * n1); TER.FO = new Float32Array(n1 * n1); TER.WN = new Float32Array(n1 * n1);
+      for (let j = 0; j < n1; j++) for (let i = 0; i < n1; i++) {
+        const k = j * n1 + i, x = -E + i * cell, z = -E + j * cell;
+        const gx = (H[j * n1 + Math.min(N, i + 1)] - H[j * n1 + Math.max(0, i - 1)]) / (2 * cell);
+        const gz = (H[Math.min(N, j + 1) * n1 + i] - H[Math.max(0, j - 1) * n1 + i]) / (2 * cell);
+        TER.SL[k] = Math.hypot(gx, gz);
+        const h = H[k], f = smoothstep(-0.08, 0.32, NZ.fbm(x / 1700 + 40, z / 1700 - 40, 3));
+        TER.FO[k] = h < SEA + 1.5 || h > MAP.treeline ? 0 : desert ? (h < 11 ? 0.75 : 0.015) : f;
+      }
+      // Proximité de l'eau (mer, rivières) : 1 si un sommet immergé est à 2 cellules ou moins → plages et berges
+      for (let j = 0; j < n1; j++) for (let i = 0; i < n1; i++) {
+        let w = 0;
+        for (let b = Math.max(0, j - 2); b <= Math.min(N, j + 2) && !w; b++) for (let a = Math.max(0, i - 2); a <= Math.min(N, i + 2); a++) if (H[b * n1 + a] < SEA) { w = 1; break; }
+        TER.WN[j * n1 + i] = w;
       }
     }
 
-    function createLakes() {
-      const water = new THREE.MeshStandardMaterial({
-        color: 0x4a8fc0, map: TEX.water, roughness: 0.2, metalness: 0.35, transparent: true, opacity: 0.93,
-        polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3
-      });
+    // Texture couleur du relief (une seule pour toute la carte) + champs peints dans les plaines
+    function buildColorMap() {
+      const S = GFX.cmap, c = document.createElement('canvas'); c.width = c.height = S;
+      const g = c.getContext('2d'), img = g.createImageData(S, S), d = img.data;
+      const E = TER.E, k = 2 * E / S, P = PALETTES[MAP.palette], NZ = TER.noise, o = [0, 0, 0];
+      for (let py = 0; py < S; py++) {
+        const z = -E + (py + 0.5) * k;
+        for (let px = 0; px < S; px++) {
+          const x = -E + (px + 0.5) * k, h = terrainHeight(x, z);
+          terrainColor(P, h, sampleGrid(TER.SL, x, z), NZ.n2(x / 380, z / 380), sampleGrid(TER.FO, x, z), o, sampleGrid(TER.WN, x, z));
+          const q = (py * S + px) * 4; d[q] = o[0]; d[q + 1] = o[1]; d[q + 2] = o[2]; d[q + 3] = 255;
+        }
+      }
+      g.putImageData(img, 0, 0);
+      // Parcelles agricoles (plaines et fonds de vallée peu pentus)
+      const R = mulberry32(MAP.seed + 3), cols = ['rgba(127,166,79,.55)', 'rgba(200,181,106,.55)', 'rgba(138,107,74,.5)', 'rgba(148,184,94,.55)', 'rgba(176,160,84,.5)'];
+      const nF = Math.round((MAP.fields || 0) * (2 * MAP.world / 1000) ** 2 * 1.4);
+      for (let t = 0, done = 0; t < nF * 6 && done < nF; t++) {
+        const x = (R() * 2 - 1) * MAP.world, z = (R() * 2 - 1) * MAP.world, h = terrainHeight(x, z);
+        if (h < SEA + 1 || h > MAP.treeline - 300 || sampleGrid(TER.SL, x, z) > 0.07 || blockedForScenery(x, z, 60)) continue;
+        const w = (80 + R() * 280) / k, l = (80 + R() * 280) / k;
+        g.save(); g.translate((x + E) / k, (z + E) / k); g.rotate(R() * Math.PI);
+        g.fillStyle = cols[Math.floor(R() * cols.length)]; g.fillRect(-w / 2, -l / 2, w, l);
+        g.fillStyle = 'rgba(0,0,0,.08)'; for (let s = -w / 2; s < w / 2; s += 2.2) g.fillRect(s, -l / 2, 0.9, l);
+        g.restore(); done++;
+      }
+      const t = new THREE.CanvasTexture(c); t.anisotropy = maxAniso;
+      return t;
+    }
+    // Relief en tuiles (frustum culling par tuile) ; le shader multiplie la couleur par une texture de détail répétée
+    function buildTerrain() {
+      const { E, N, cell, H } = TER, n1 = N + 1, tv = TILE + 1;
+      const idx = new Uint16Array(TILE * TILE * 6);
+      for (let j = 0, o = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) {
+        const a = j * tv + i, b = a + 1, c = a + tv, d = c + 1;
+        idx[o++] = a; idx[o++] = c; idx[o++] = b; idx[o++] = b; idx[o++] = c; idx[o++] = d;   // même diagonale que terrainHeight
+      }
+      const index = new THREE.BufferAttribute(idx, 1);
+      const mat = new THREE.MeshLambertMaterial({ map: buildColorMap() });
+      mat.onBeforeCompile = sh => {
+        sh.uniforms.detailMap = { value: TEX.detail }; sh.uniforms.detailRep = { value: 2 * E / 24 };
+        sh.fragmentShader = 'uniform sampler2D detailMap;\nuniform float detailRep;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+          `#include <map_fragment>
+          float dA = texture2D(detailMap, vUv * detailRep).r, dB = texture2D(detailMap, vUv * detailRep * 0.09).r;
+          diffuseColor.rgb *= 0.6 + dA * 0.52 + dB * 0.28;`);
+      };
+      for (let tj = 0; tj < N; tj += TILE) for (let ti = 0; ti < N; ti += TILE) {
+        const pos = new Float32Array(tv * tv * 3), nor = new Float32Array(tv * tv * 3), uv = new Float32Array(tv * tv * 2);
+        for (let j = 0; j < tv; j++) for (let i = 0; i < tv; i++) {
+          const gi = Math.min(N, ti + i), gj = Math.min(N, tj + j), k = j * tv + i, gk = gj * n1 + gi;
+          pos[k * 3] = -E + gi * cell; pos[k * 3 + 1] = H[gk]; pos[k * 3 + 2] = -E + gj * cell;
+          const nx = (H[gj * n1 + Math.max(0, gi - 1)] - H[gj * n1 + Math.min(N, gi + 1)]) / (2 * cell);
+          const nz = (H[Math.max(0, gj - 1) * n1 + gi] - H[Math.min(N, gj + 1) * n1 + gi]) / (2 * cell), l = Math.hypot(nx, 1, nz);
+          nor[k * 3] = nx / l; nor[k * 3 + 1] = 1 / l; nor[k * 3 + 2] = nz / l;
+          uv[k * 2] = gi / N; uv[k * 2 + 1] = 1 - gj / N;
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setIndex(index);
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        geo.computeBoundingSphere();
+        const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; worldGroup.add(m);
+      }
+    }
+    // Mer et rivières : quads au niveau de la mer sur les cellules immergées (par tuile) + océan au-delà de la grille
+    function buildWater() {
+      const { E, N, cell, H } = TER, n1 = N + 1;
+      MAT.water = new THREE.MeshStandardMaterial({ color: 0x6aa8d8, map: TEX.water, roughness: 0.25, metalness: 0.12, transparent: true, opacity: 0.93 });
+      const quad = (p, u, x0, z0, x1, z1) => {
+        p.push(x0, SEA, z0, x0, SEA, z1, x1, SEA, z0, x1, SEA, z0, x0, SEA, z1, x1, SEA, z1);
+        for (const [x, z] of [[x0, z0], [x0, z1], [x1, z0], [x1, z0], [x0, z1], [x1, z1]]) u.push(x / 480, z / 480);
+      };
+      const mesh = (p, u) => {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
+        const nrm = new Float32Array(p.length); for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
+        geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3)); geo.computeBoundingSphere();
+        const m = new THREE.Mesh(geo, MAT.water); m.receiveShadow = true; worldGroup.add(m);
+      };
+      for (let tj = 0; tj < N; tj += TILE) for (let ti = 0; ti < N; ti += TILE) {
+        const p = [], u = [];
+        for (let j = tj; j < Math.min(N, tj + TILE); j++) for (let i = ti; i < Math.min(N, ti + TILE); i++) {
+          const k = j * n1 + i;
+          if (Math.min(H[k], H[k + 1], H[k + n1], H[k + n1 + 1]) < SEA + 0.3) quad(p, u, -E + i * cell, -E + j * cell, -E + (i + 1) * cell, -E + (j + 1) * cell);
+        }
+        if (p.length) mesh(p, u);
+      }
+      const F = E + 30000, p = [], u = [];
+      quad(p, u, -F, -F, F, -E); quad(p, u, -F, E, F, F); quad(p, u, -F, -E, -E, E); quad(p, u, E, -E, F, E);
+      mesh(p, u);
+    }
+    function buildLakes() {
       const sand = new THREE.MeshLambertMaterial({ color: 0xcdbb8b, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      const water = MAT.water.clone(); Object.assign(water, { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
       for (const l of LAKES) {
         const w = new THREE.Mesh(new THREE.CircleGeometry(l.r, 48), water);
-        w.rotation.x = -Math.PI / 2; w.position.set(l.x, 0.2, l.z); scene.add(w);
+        w.rotation.x = -Math.PI / 2; w.position.set(l.x, l.y + 0.2, l.z); worldGroup.add(w);
         const s = new THREE.Mesh(new THREE.RingGeometry(l.r - 2, l.r + 14, 48), sand);
-        s.rotation.x = -Math.PI / 2; s.position.set(l.x, 0.15, l.z); scene.add(s);
+        s.rotation.x = -Math.PI / 2; s.position.set(l.x, l.y + 0.15, l.z); worldGroup.add(s);
       }
+    }
+    // Champs texturés nets, uniquement sur un sol parfaitement plat (plaines, abords des aérodromes) : 1 maillage par texture
+    function buildFields() {
+      const n = Math.round(GFX.fields * (MAP.fields || 0) * Math.min(3, (MAP.world / 3200) ** 2)), R = mulberry32(MAP.seed + 7);
+      const buckets = TEX.fields.map(() => ({ p: [], u: [] }));
+      for (let t = 0, placed = 0; t < n * 12 && placed < n; t++) {
+        const w = 80 + R() * 260, l = 80 + R() * 260, x = (R() * 2 - 1) * (MAP.world - 400), z = (R() * 2 - 1) * (MAP.world - 400), rot = R() * Math.PI;
+        if (blockedForScenery(x, z, Math.max(w, l) / 2)) continue;
+        const h0 = terrainHeight(x, z); if (h0 < SEA + 0.5) continue;
+        const c = Math.cos(rot), s = Math.sin(rot), at = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
+        let ok = true;
+        for (let a = -0.5; a <= 0.5 && ok; a += 0.125) for (let b = -0.5; b <= 0.5 && ok; b += 0.125) {
+          const [px, pz] = at(a * w, b * l); if (Math.abs(terrainHeight(px, pz) - h0) > 0.02) ok = false;
+        }
+        if (!ok) continue;
+        const B = buckets[placed++ % buckets.length], y = h0 + 0.05;
+        const cs = [[-w / 2, -l / 2], [-w / 2, l / 2], [w / 2, -l / 2], [w / 2, -l / 2], [-w / 2, l / 2], [w / 2, l / 2]];
+        for (const [lx, lz] of cs) { const [px, pz] = at(lx, lz); B.p.push(px, y, pz); B.u.push((lx + w / 2) / 40, (lz + l / 2) / 40); }
+      }
+      buckets.forEach((B, i) => {
+        if (!B.p.length) return;
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(B.p, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(B.u, 2));
+        geo.computeVertexNormals(); geo.computeBoundingSphere();
+        const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: TEX.fields[i], polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+        m.receiveShadow = true; worldGroup.add(m);
+      });
+    }
+    // Forêts : arbres instanciés par tuile, avec une sphère englobante par tuile (culling caméra et ombres)
+    function buildTrees() {
+      const R = mulberry32(MAP.seed + 99), { E, cell, N } = TER, span = TILE * cell, nt = Math.ceil(N / TILE), P = PALETTES[MAP.palette];
+      const lim = MAP.world + 2500, want = Math.min(GFX.treeMax, Math.round((2 * lim / 1000) ** 2 * GFX.treeDen * MAP.trees));
+      const tiles = new Map();
+      for (let t = 0, placed = 0; t < want * 3 && placed < want; t++) {
+        const x = (R() * 2 - 1) * lim, z = (R() * 2 - 1) * lim;
+        if (R() > Math.pow(sampleGrid(TER.FO, x, z), 1.6) * 0.97 + 0.015) continue;   // forêts denses, arbres isolés ailleurs
+        const h = terrainHeight(x, z);
+        if (h < SEA + 1.5 || h > MAP.treeline + (R() - 0.5) * 160 || sampleGrid(TER.SL, x, z) > 0.75 || blockedForScenery(x, z, 0)) continue;
+        const key = Math.floor((x + E) / span) + Math.floor((z + E) / span) * nt;
+        let a = tiles.get(key); if (!a) tiles.set(key, a = []);
+        a.push(x, h, z, 0.9 + R() * 1.1, R() * Math.PI * 2, 0.8 + R() * 0.5, R());
+        placed++;
+      }
+      const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3, 6).translate(0, 1.5, 0);
+      const leafGeo = P.conifer ? new THREE.ConeGeometry(2.1, 8.5, 7).translate(0, 6.6, 0) : new THREE.ConeGeometry(2.4, 6.5, 7).translate(0, 6, 0);
+      const trunkMat = new THREE.MeshLambertMaterial({ color: P.trunk });
+      const leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, map: TEX.leaves });
+      const c0 = new THREE.Color(P.leaves[0]), c1 = new THREE.Color(P.leaves[1]), col = new THREE.Color();
+      const m4 = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+      for (const a of tiles.values()) {
+        const n = a.length / 7, tr = new THREE.InstancedMesh(trunkGeo.clone(), trunkMat, n), lv = new THREE.InstancedMesh(leafGeo.clone(), leafMat, n);
+        let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+        for (let i = 0; i < n; i++) {
+          const o = i * 7, sc = a[o + 3];
+          m4.compose(p.set(a[o], a[o + 1], a[o + 2]), q.setFromAxisAngle(WORLD_UP, a[o + 4]), s.set(sc, sc * a[o + 5], sc));
+          tr.setMatrixAt(i, m4); lv.setMatrixAt(i, m4); lv.setColorAt(i, col.copy(c0).lerp(c1, a[o + 6]));
+          x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z);
+        }
+        const sphere = new THREE.Sphere(new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 + 6, (z0 + z1) / 2), Math.hypot(x1 - x0, y1 - y0 + 24, z1 - z0) / 2 + 6);
+        tr.geometry.boundingSphere = sphere; lv.geometry.boundingSphere = sphere.clone();
+        for (const m of [tr, lv]) { m.castShadow = m.receiveShadow = true; m.instanceMatrix.needsUpdate = true; worldGroup.add(m); }
+      }
+    }
+
+    function createClouds() {
+      // Chaque nuage = ses boules fusionnées en une seule géométrie (1 draw call par nuage au lieu de 5 à 8).
+      // Nombre fixe : les nuages sont recyclés autour de l'avion (updateClouds), la couche suit la carte (MAP.clouds).
+      const src = new THREE.IcosahedronGeometry(1, 1), sp = src.attributes.position, sn = src.attributes.normal, vc = sp.count;
+      const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, emissive: 0x8899aa, emissiveIntensity: 0.3 });
+      for (let i = 0; i < GFX.clouds; i++) {
+        const n = 5 + Math.floor(Math.random() * 4), pos = new Float32Array(n * vc * 3), nrm = new Float32Array(n * vc * 3);
+        for (let j = 0; j < n; j++) {
+          const ox = rnd(-2.5, 2.5), oy = rnd(-.4, .4), oz = rnd(-1.2, 1.2), s = rnd(1, 1.8);
+          for (let k = 0; k < vc; k++) {
+            const o = (j * vc + k) * 3;
+            pos[o] = sp.getX(k) * s + ox; pos[o + 1] = sp.getY(k) * s + oy; pos[o + 2] = sp.getZ(k) * s + oz;
+            nrm[o] = sn.getX(k); nrm[o + 1] = sn.getY(k); nrm[o + 2] = sn.getZ(k);
+          }
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+        geo.computeBoundingSphere();
+        const c = new THREE.Mesh(geo, mat);
+        const sc = rnd(10, 26); c.scale.set(sc, sc * 0.6, sc);
+        clouds.push(c); scene.add(c);
+      }
+    }
+    function scatterClouds(cx, cz) {
+      const lim = GFX.fog * 1.1, [lo, hi] = MAP.clouds;
+      for (const c of clouds) c.position.set(cx + rnd(-lim, lim), rnd(lo, hi), cz + rnd(-lim, lim));
+    }
+
+    // Carte miniature (fenêtre M) : teintes du relief, ombrage et courbes de niveau tous les 100 m (500 m appuyées)
+    function buildMapImage() {
+      const S = 720, E = TER.E, k = 2 * E / S, P = PALETTES[MAP.palette], NZ = TER.noise, o = [0, 0, 0];
+      const c = document.createElement('canvas'); c.width = c.height = S;
+      const g = c.getContext('2d'), img = g.createImageData(S, S), d = img.data, hs = new Float32Array(S * S);
+      for (let v = 0; v < S; v++) for (let u = 0; u < S; u++) hs[v * S + u] = terrainHeight(E - (u + 0.5) * k, E - (v + 0.5) * k);
+      for (let v = 0; v < S; v++) for (let u = 0; u < S; u++) {
+        const i = v * S + u, h = hs[i], x = E - (u + 0.5) * k, z = E - (v + 0.5) * k;
+        const hr = hs[v * S + Math.min(S - 1, u + 1)], hd = hs[Math.min(S - 1, v + 1) * S + u];
+        terrainColor(P, h, sampleGrid(TER.SL, x, z), NZ.n2(x / 380, z / 380) * 0.5, sampleGrid(TER.FO, x, z), o, sampleGrid(TER.WN, x, z));
+        let sh = 1;
+        if (h > SEA) {
+          sh = clamp(1 + ((hr - h) + (hd - h)) / k * 0.9, 0.55, 1.3);             // lumière venant du nord-ouest (haut gauche)
+          const a = Math.floor(h / 100), lineR = Math.floor(hr / 100) !== a, lineD = Math.floor(hd / 100) !== a;
+          if (h > 40 && (lineR || lineD)) sh *= (Math.floor(Math.max(h, hr, hd) / 500) !== Math.floor(Math.min(h, hr, hd) / 500)) ? 0.62 : 0.84;
+        }
+        const q = i * 4; d[q] = Math.min(255, o[0] * sh); d[q + 1] = Math.min(255, o[1] * sh); d[q + 2] = Math.min(255, o[2] * sh); d[q + 3] = 255;
+      }
+      g.putImageData(img, 0, 0);
+      MAPIMG = c;
+      // Sommets remarquables (maxima locaux, espacés d'au moins 1,8 km)
+      const { N, H, cell } = TER, n1 = N + 1, cand = [];
+      for (let j = 4; j < N - 4; j += 2) for (let i = 4; i < N - 4; i += 2) {
+        const h = H[j * n1 + i], x = -E + i * cell, z = -E + j * cell;
+        if (h < 150 || Math.abs(x) > MAP.world || Math.abs(z) > MAP.world) continue;
+        let top = true;
+        for (let b = -4; b <= 4 && top; b++) for (let a = -4; a <= 4; a++) if (H[(j + b) * n1 + i + a] > h) { top = false; break; }
+        if (top) cand.push({ x, z, h });
+      }
+      cand.sort((a, b) => b.h - a.h);
+      PEAKS = [];
+      for (const p of cand) { if (PEAKS.length >= 30) break; if (!PEAKS.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 1800)) PEAKS.push(p); }
+    }
+
+    // Libère la mémoire GPU du décor d'une carte (géométries, matériaux et textures propres à la carte)
+    function disposeWorld(root) {
+      const keep = new Set([...Object.values(MAT), ...Object.values(GEO), ...Object.values(numberMats)]);
+      const keepTex = new Set(Object.values(TEX).flat());
+      Object.values(numberMats).forEach(m => keepTex.add(m.map));
+      root.traverse(o => {
+        if (o.geometry && !keep.has(o.geometry)) o.geometry.dispose();
+        const mats = o.material ? [].concat(o.material) : [];
+        for (const m of mats) {
+          if (keep.has(m)) continue;
+          if (m.map && !keepTex.has(m.map)) m.map.dispose();
+          m.dispose();
+        }
+      });
+      MAT.water && MAT.water.dispose();
+    }
+    // Charge une carte : relief, eau, végétation, aérodromes, porte-avions ; replace l'avion au premier aérodrome
+    function loadMap(id) {
+      if (!MAPS[id]) id = 'vallee';
+      if (REC.on) stopRec();
+      if (RP.active) { RP.active = false; document.body.classList.remove('replay'); }
+      MAP = Object.assign({ id }, MAPS[id]);
+      DB.settings.map = id; persist();
+      WORLD = MAP.world; ROAD_X = MAP.road ? MAP.road.x : 0; ROAD_LEN = MAP.road ? MAP.road.len : 0;
+      const g = genHeights(MAP, GFX.terrN);
+      Object.assign(TER, { E: g.E, N: g.N, cell: g.cell, H: g.H, noise: g.noise });
+      AIRPORTS.length = 0; AIRPORTS.push(...g.aps);
+      LAKES.length = 0; LAKES.push(...g.lakes);
+      CARRIERS.length = 0; CARRIERS.push(...AIRPORTS.filter(a => a.carrier));
+      prepareGrids();
+      if (worldGroup) { scene.remove(worldGroup); disposeWorld(worldGroup); }
+      worldGroup = new THREE.Group(); scene.add(worldGroup);
+      socks.length = 0;
+      buildTerrain(); buildWater(); buildLakes(); buildFields(); buildTrees();
+      AIRPORTS.forEach(a => a.carrier ? buildCarrier(a) : buildAirport(a));
+      if (MAP.road) createRoad();
+      truck.visible = !!MAP.road;
+      if (MAP.road) { truckState.dir = 1; truck.position.set(ROAD_X - 3.5, 0, -RUNWAY_LEN / 2 + 60); }
+      buildMapImage();
+      scene.fog.color.setHex(MAP.haze); scene.background.setHex(MAP.haze); sky.material.uniforms.horizon.value.setHex(MAP.haze);
+      Object.assign(mission, { active: false, wps: [] });
+      plan.from = AIRPORTS[0].id; plan.to = AIRPORTS[1].id; plan.wps = [];
+      S.home = AIRPORTS[0].id; mapView.fitted = false;
+      fillAirportSelects();
+      placeAtAirport(S.home);
+      scatterClouds(plane.position.x, plane.position.z);
+    }
+    // Changement de carte depuis l'interface : écran de chargement le temps de générer le relief
+    function switchMap(id, then) {
+      closeAllModals();
+      $('loading').textContent = `Génération de la carte ${MAPS[id].name}…`; $('loading').classList.add('on');
+      setTimeout(() => {
+        try { loadMap(id); } finally { $('loading').classList.remove('on'); }
+        toast(`Carte ${MAP.name} · ${AIRPORTS.length} terrains · zone de ${Math.round(MAP.world / 500)} km`, 'ok');
+        if (then) then();
+      }, 40);
     }
 
     function buildWindsock(ap) {
       const p = toWorld(ap, 25, -200);
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 8, 6), new THREE.MeshLambertMaterial({ color: 0xdddddd }));
-      pole.position.set(p.x, 4, p.z); pole.castShadow = true; scene.add(pole);
-      const pivot = new THREE.Group(); pivot.position.set(p.x, 7.6, p.z); scene.add(pivot);
+      pole.position.set(p.x, ap.y + 4, p.z); pole.castShadow = true; worldGroup.add(pole);
+      const pivot = new THREE.Group(); pivot.position.set(p.x, ap.y + 7.6, p.z); worldGroup.add(pivot);
       const inner = new THREE.Group(); pivot.add(inner);
       const mat = new THREE.MeshLambertMaterial({ color: 0xff7a1a, side: THREE.DoubleSide });
       const sock = new THREE.Mesh(new THREE.ConeGeometry(0.9, 4, 10, 1, true), mat);
@@ -2035,10 +2635,10 @@
     }
 
     function buildAirport(ap) {
-      const g = new THREE.Group(); g.position.set(ap.x, 0, ap.z); g.rotation.y = ap.h;
+      const g = new THREE.Group(); g.position.set(ap.x, ap.y, ap.z); g.rotation.y = ap.h;
       const L = RUNWAY_LEN, W = RUNWAY_W;
       const flat = (w, l, mat, x, y, z) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.receiveShadow = true; g.add(m); return m; };
-      flat(W + 130, L + 180, MAT.clearing, -30, 0.04, 0);
+      flat(W + 130, L + 180, PALETTES[MAP.palette].desert ? MAT.clearingSand : MAT.clearing, -30, 0.04, 0);
       flat(W, L, MAT.runway, 0, 0.1, 0);
       flat(28, 90, MAT.apron, -29, 0.1, -150);
       const paint = [], edge = [], thr = [];
@@ -2066,19 +2666,65 @@
       add(new THREE.BoxGeometry(40, 14, 30), new THREE.MeshLambertMaterial({ color: 0x8a9099 }), -62, 7, -150);
       add(new THREE.BoxGeometry(42, 1, 32), new THREE.MeshLambertMaterial({ color: 0x5b6470 }), -62, 14.5, -150);
       add(new THREE.BoxGeometry(0.4, 10, 22), new THREE.MeshLambertMaterial({ color: 0x3b4048 }), -41.9, 5, -150);
-      scene.add(g);
+      worldGroup.add(g);
       buildWindsock(ap);
+    }
+
+    // Porte-avions : coque, pont texturé (axe, zone d'appontage, brins, catapulte), îlot, feux de bord
+    function buildCarrier(ap) {
+      const g = new THREE.Group(); g.position.set(ap.x, 0, ap.z); g.rotation.y = ap.h;
+      const L = CV.L, W = CV.W, hullH = DECK_Y - SEA + 9 - 1.5;                                 // carène sous le pont (pas de face commune)
+      const hull = new THREE.MeshStandardMaterial({ color: 0x8a939c, roughness: 0.7, metalness: 0.1, emissive: 0x23282e });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.8, metalness: 0.2 });
+      const add = (geo, mat, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; parent.add(m); return m; };
+      add(new THREE.BoxGeometry(40, hullH, L - 40), hull, 0, SEA - 9 + hullH / 2, -14);                       // carène
+      const bow = add(new THREE.BoxGeometry(29, hullH, 29), hull, 0, SEA - 9 + hullH / 2, L / 2 - 52); bow.rotation.y = Math.PI / 4;   // étrave
+      add(new THREE.BoxGeometry(W - 6, 5, L - 6), dark, 0, DECK_Y - 3.2, 0);                                    // galeries sous le pont
+      // Pont : texture dessinée (haut de la toile = poupe, gauche = tribord)
+      const dc = document.createElement('canvas'); dc.width = 256 * GFX.tex; dc.height = 1024 * GFX.tex;
+      const gc = dc.getContext('2d'); gc.scale(GFX.tex, GFX.tex);
+      const s = 256, ch = 1024, px = lx => (lx + W / 2) / W * s, py = lz => (lz + L / 2) / L * ch;
+      gc.fillStyle = '#3d4248'; gc.fillRect(0, 0, s, ch);
+      for (let i = 0; i < 500; i++) { gc.fillStyle = `rgba(${Math.random() < .5 ? '0,0,0' : '255,255,255'},${rnd(.02, .05)})`; gc.fillRect(rnd(0, s), rnd(0, ch), rnd(2, 14), rnd(2, 30)); }
+      gc.strokeStyle = '#e8e8e8'; gc.lineWidth = 1.6; gc.strokeRect(px(-W / 2 + 1.5), 2, px(W / 2 - 1.5) - px(-W / 2 + 1.5), ch - 4);
+      gc.setLineDash([10, 9]); gc.strokeStyle = '#f2f2f2'; gc.lineWidth = 2;
+      gc.beginPath(); gc.moveTo(px(0), py(-L / 2 + 6)); gc.lineTo(px(0), py(L / 2 - 6)); gc.stroke(); gc.setLineDash([]);
+      gc.strokeStyle = '#f2d24a'; gc.lineWidth = 1.4;                                                              // zone d'appontage
+      gc.strokeRect(px(-12), py(-L / 2 + 8), px(12) - px(-12), py(-30) - py(-L / 2 + 8));
+      gc.strokeStyle = '#c9ccd0'; gc.lineWidth = 2.4;                                                              // brins d'arrêt
+      for (const z of CV.WIRES) { gc.beginPath(); gc.moveTo(px(-14), py(z)); gc.lineTo(px(14), py(z)); gc.stroke(); }
+      gc.strokeStyle = '#1c1f23'; gc.lineWidth = 3; gc.beginPath(); gc.moveTo(px(0), py(CV.CAT0)); gc.lineTo(px(0), py(CV.CAT1)); gc.stroke();   // catapulte
+      gc.fillStyle = '#ffb547'; gc.fillRect(px(-6), py(CV.CAT0) - 3, px(6) - px(-6), 6);
+      gc.fillStyle = '#f2f2f2'; gc.font = '700 44px Arial, sans-serif'; gc.textAlign = 'center';
+      gc.save(); gc.translate(px(14), py(L / 2 - 40)); gc.scale(1, 0.6); gc.rotate(Math.PI); gc.fillText(ap.id.replace(/D/g, '') || '1', 0, 0); gc.restore();
+      const deckTex = new THREE.CanvasTexture(dc); deckTex.anisotropy = maxAniso;
+      deckTex.wrapS = deckTex.wrapT = THREE.ClampToEdgeWrapping;
+      const deckSide = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.7 });
+      add(new THREE.BoxGeometry(W, 1.2, L), [deckSide, deckSide, new THREE.MeshLambertMaterial({ map: deckTex }), deckSide, deckSide, deckSide], 0, DECK_Y - 0.6, 0);
+      // Îlot à tribord, mât, radar
+      const I = CV.ISL, iw = I.x1 - I.x0, il = I.z1 - I.z0, ix = (I.x0 + I.x1) / 2, iz = (I.z0 + I.z1) / 2;
+      add(new THREE.BoxGeometry(iw, 16, il), hull, ix, DECK_Y + 8, iz);
+      add(new THREE.BoxGeometry(iw - 2, 6, il * 0.55), hull, ix, DECK_Y + 19, iz + 6);
+      add(new THREE.BoxGeometry(iw + 0.2, 1.4, il * 0.5), new THREE.MeshStandardMaterial({ color: 0x1d2a38, roughness: 0.15, metalness: 0.6 }), ix, DECK_Y + 13.5, iz + 4);
+      add(new THREE.CylinderGeometry(0.4, 0.6, 10, 8), dark, ix, DECK_Y + I.top - 4, iz + 2);
+      add(new THREE.BoxGeometry(5, 1.6, 0.4), new THREE.MeshStandardMaterial({ color: 0xd9dde2, roughness: 0.5 }), ix, DECK_Y + I.top - 1, iz + 2);
+      const edge = [];
+      for (let z = -L / 2 + 6; z <= L / 2 - 6; z += 18) for (const s of [-1, 1]) edge.push(new THREE.Matrix4().makeTranslation(s * (W / 2 - 0.6), DECK_Y + 0.2, z));
+      instanced(GEO.light, MAT.edgeLight, edge, g);
+      const foam = new THREE.Mesh(new THREE.PlaneGeometry(52, L + 30), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28, depthWrite: false }));
+      foam.rotation.x = -Math.PI / 2; foam.position.set(0, SEA + 0.08, -10); g.add(foam);
+      worldGroup.add(g);
     }
 
     function createRoad() {
       const road = new THREE.Mesh(new THREE.PlaneGeometry(14, ROAD_LEN), new THREE.MeshLambertMaterial({
         map: makeAsphalt(1, ROAD_LEN / 14), color: 0xdddddd, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
       }));
-      road.rotation.x = -Math.PI / 2; road.position.set(ROAD_X, 0.1, 0); road.receiveShadow = true; scene.add(road);
+      road.rotation.x = -Math.PI / 2; road.position.set(ROAD_X, 0.1, 0); road.receiveShadow = true; worldGroup.add(road);
       const dashMat = new THREE.MeshBasicMaterial({ color: 0xf5e9a8, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
       const dashes = [];
       for (let z = -ROAD_LEN / 2; z < ROAD_LEN / 2; z += 25) dashes.push(flatMatrix(0.5, 10, ROAD_X, 0.15, z));
-      instanced(GEO.unitPlane, dashMat, dashes, scene);
+      instanced(GEO.unitPlane, dashMat, dashes, worldGroup);
     }
 
     // Petits objets statiques répétés (feux, marquages) : un InstancedMesh par lot plutôt qu'un Mesh chacun
@@ -2088,99 +2734,6 @@
       const im = new THREE.InstancedMesh(geo, mat, mats.length);
       mats.forEach((m, i) => im.setMatrixAt(i, m));
       im.frustumCulled = false; im.instanceMatrix.needsUpdate = true; parent.add(im); return im;
-    }
-
-    function hash(a, b, c) {
-      a = Math.round(a * 100); b = Math.round(b * 100); c = Math.round(c * 100);
-      const s = Math.sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453; return s - Math.floor(s);
-    }
-    function createMountains() {
-      const rock = new THREE.Color(0x6b7280), rock2 = new THREE.Color(0x4b5563), snow = new THREE.Color(0xf8fafc);
-      const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: TEX.rock });
-      let tries = 0;
-      while (mountains.length < 50 && tries++ < 5000) {
-        const a = Math.random() * Math.PI * 2, d = rnd(750, 2900);
-        const x = Math.cos(a) * d, z = Math.sin(a) * d;
-        const r = rnd(160, 380), h = r * rnd(0.6, 1.3);
-        if (AIRPORTS.some(ap => Math.hypot(ap.x - x, ap.z - z) < r + RUNWAY_LEN / 2 + 350)) continue;
-        if (LAKES.some(l => Math.hypot(l.x - x, l.z - z) < r + l.r + 40)) continue;
-        if (Math.abs(x - ROAD_X) < r + 40 && Math.abs(z) < ROAD_LEN / 2 + r) continue;
-        if (mountains.some(m => Math.hypot(m.x - x, m.z - z) < (m.r + r) * 0.55)) continue;
-        const geo = new THREE.ConeGeometry(r, h, 9, 5);
-        const pos = geo.attributes.position, colors = [];
-        for (let i = 0; i < pos.count; i++) {
-          let px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
-          const t = (py + h / 2) / h;
-          if (t > 0.001 && t < 0.999) {
-            const n1 = hash(px, py, pz), n2 = hash(pz, px, py), n3 = hash(py, pz, px), k = r * 0.22 * (1 - t * 0.5);
-            px += (n1 - .5) * k; pz += (n2 - .5) * k; py += (n3 - .5) * h * 0.08;
-          }
-          pos.setXYZ(i, px, py, pz);
-          const tt = (py + h / 2) / h, snowLine = 0.62 + (hash(px * 0.1, 0, pz * 0.1) - .5) * 0.12;
-          const c = tt > snowLine ? snow : rock.clone().lerp(rock2, hash(pz, py, px));
-          colors.push(c.r, c.g, c.b);
-        }
-        geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-        geo.computeVertexNormals();
-        const m = new THREE.Mesh(geo, mat); m.position.set(x, h / 2, z); scene.add(m);
-        mountains.push({ x, z, r, h });
-      }
-    }
-    function terrainHeight(x, z) {
-      let best = 0;
-      for (const m of mountains) { const d = Math.hypot(x - m.x, z - m.z), R = m.r * 1.05; if (d < R) best = Math.max(best, m.h * (1 - d / R)); }
-      return best;
-    }
-
-    function createTrees() {
-      const N = GFX.trees;
-      const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3, 6); trunkGeo.translate(0, 1.5, 0);
-      const leafGeo = new THREE.ConeGeometry(2.4, 6.5, 7); leafGeo.translate(0, 6, 0);
-      const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: 0x7a4e2d }), N);
-      const leavesA = new THREE.InstancedMesh(leafGeo, new THREE.MeshLambertMaterial({ color: 0x2f7d3b, flatShading: true, map: TEX.leaves }), N);
-      const leavesB = new THREE.InstancedMesh(leafGeo, new THREE.MeshLambertMaterial({ color: 0x4f9a3a, flatShading: true, map: TEX.leaves }), N);
-      const m4 = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-      let count = 0, cA = 0, cB = 0;
-      const ok = (x, z) => Math.abs(x) < WORLD - 200 && Math.abs(z) < WORLD - 200 && !blockedForScenery(x, z, 0) && !mountains.some(m => Math.hypot(m.x - x, m.z - z) < m.r);
-      const place = (x, z) => {
-        if (count >= N || !ok(x, z)) return;
-        const sc = rnd(0.8, 1.8);
-        p.set(x, 0, z); q.setFromAxisAngle(WORLD_UP, Math.random() * Math.PI * 2); s.set(sc, sc * rnd(0.8, 1.3), sc);
-        m4.compose(p, q, s); trunks.setMatrixAt(count++, m4);
-        if (Math.random() < 0.5) leavesA.setMatrixAt(cA++, m4); else leavesB.setMatrixAt(cB++, m4);
-      };
-      for (let f = 0, nf = Math.round(32 * N / 1100); f < nf; f++) {
-        const cx = rnd(-2600, 2600), cz = rnd(-2600, 2600);
-        for (let i = 0; i < 30; i++) { const a = Math.random() * Math.PI * 2, d = Math.random() * Math.random() * 150; place(cx + Math.cos(a) * d, cz + Math.sin(a) * d); }
-      }
-      for (let i = 0; i < 120; i++) place(ROAD_X + (Math.random() < .5 ? -1 : 1) * rnd(16, 26), rnd(-ROAD_LEN / 2, ROAD_LEN / 2));
-      for (let i = 0; i < 4000 && count < N; i++) place(rnd(-2800, 2800), rnd(-2800, 2800));
-      trunks.count = count; leavesA.count = cA; leavesB.count = cB;
-      [trunks, leavesA, leavesB].forEach(m => { m.castShadow = m.receiveShadow = true; m.frustumCulled = false; m.instanceMatrix.needsUpdate = true; scene.add(m); });
-    }
-
-    function createClouds() {
-      // Chaque nuage = ses boules fusionnées en une seule géométrie (1 draw call par nuage au lieu de 5 à 8)
-      const src = new THREE.IcosahedronGeometry(1, 1), sp = src.attributes.position, sn = src.attributes.normal, vc = sp.count;
-      const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, emissive: 0x8899aa, emissiveIntensity: 0.3 });
-      for (let i = 0; i < GFX.clouds; i++) {
-        const n = 5 + Math.floor(Math.random() * 4), pos = new Float32Array(n * vc * 3), nrm = new Float32Array(n * vc * 3);
-        for (let j = 0; j < n; j++) {
-          const ox = rnd(-2.5, 2.5), oy = rnd(-.4, .4), oz = rnd(-1.2, 1.2), s = rnd(1, 1.8);
-          for (let k = 0; k < vc; k++) {
-            const o = (j * vc + k) * 3;
-            pos[o] = sp.getX(k) * s + ox; pos[o + 1] = sp.getY(k) * s + oy; pos[o + 2] = sp.getZ(k) * s + oz;
-            nrm[o] = sn.getX(k); nrm[o + 1] = sn.getY(k); nrm[o + 2] = sn.getZ(k);
-          }
-        }
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-        geo.computeBoundingSphere();
-        const c = new THREE.Mesh(geo, mat);
-        const sc = rnd(10, 26); c.scale.set(sc, sc * 0.6, sc);
-        c.position.set(rnd(-WORLD, WORLD), rnd(140, 320), rnd(-WORLD, WORLD));
-        clouds.push(c); scene.add(c);
-      }
     }
 
     // ════════════════════════ Avions ════════════════════════
@@ -2348,17 +2901,19 @@
 
     // ════════════════════════ Vol ════════════════════════
     function placeAtAirport(id) {
-      const ap = apById(id), w = toWorld(ap, 0, -RUNWAY_LEN / 2 + 25);
+      const ap = apById(id) || AIRPORTS[0];
+      // Porte-avions : les jets partent de la catapulte, les autres de la poupe (roulage sur tout le pont)
+      const w = toWorld(ap, 0, ap.carrier ? (AC.jet ? CV.CAT0 : CV.START) : -RUNWAY_LEN / 2 + 25);
       Object.assign(S, {
         throttle: 0, speed: 0, roll: 0, vy: 0, heading: ap.h, onGround: true, crashed: false, fuel: 100, rpm: 0, g: 1, aoa: 0, accel: 0,
         airborne: false, flight: null, lastTouch: null, lastLat: 0, refueling: false, terrainWarn: false, gearWarn: false,
-        gearPos: 1, gearTarget: 1, reverse: false, wAir: 0
+        gearPos: 1, gearTarget: 1, reverse: false, wAir: 0, groundY: ap.y, cat: false, catHold: 0, trap: null
       });
       S.ctl.p = S.ctl.r = S.ctl.y = 0; turbV = turbR = turbP = 0;
       S.vel.set(0, 0, 0); S.prevVel.set(0, 0, 0); S.va.set(0, 0, 0);
       S.stalled = S.stallWarn = false; S.vsEff = AC.stall;
       plane.visible = true;
-      plane.position.set(w.x, GEAR, w.z);
+      plane.position.set(w.x, ap.y + GEAR, w.z);
       plane.quaternion.setFromEuler(eul.set(0, ap.h, 0));
       windAt(0, simT, windNow); windPrev.copy(windNow);
       trail.length = 0; snapCamera = true;
@@ -2395,9 +2950,10 @@
       S.reverse = !S.reverse;
       toast(S.reverse ? 'Inverseur de poussée engagé' : 'Inverseur désengagé', S.reverse ? 'caution' : 'info');
     }
-    function onTakeoff() {
+    function onTakeoff(ap0) {
+      S.cat = false; S.trap = null;
       if (!S.flight) {
-        const ap = airportAt(plane.position.x, plane.position.z);
+        const ap = ap0 || airportAt(plane.position.x, plane.position.z);
         S.flight = { from: ap ? ap.id : 'HORS', time: 0, dist: 0, maxAlt: 0, maxSpeed: 0, fuelUsed: 0 };
       }
       S.airborne = true;
@@ -2408,6 +2964,30 @@
       S.lastTouch = vs; S.lastLat = lat;
       const gr = gradeLanding(vs, lat);
       toast(`Toucher · ${vs.toFixed(1)} m/s · dérive ${Math.abs(lat).toFixed(1)} m/s · ${gr.label}`, gr.stars >= 2 ? 'ok' : 'caution');
+    }
+
+    // ════════════════════════ Porte-avions : catapulte, brins d'arrêt ════════════════════════
+    const hookDown = () => !!AC.jet && S.gearPos > 0.98;           // crosse d'appontage : jets, sortie avec le train
+    const onCatMark = dk => S.roll === 0 && Math.abs(dk.lz - CV.CAT0) < 14 && Math.abs(dk.lx) < 8;
+    // Accélération au sol sur le pont : a = accélération normale (poussée − traînée)
+    function carrierGround(dk, a, dt) {
+      // Catapulte : sur la marque de départ, plein gaz maintenu 1,5 s (l'avion est retenu) → lancement à 1,25 × Vr en bout de course
+      if (!S.cat && !S.trap && onCatMark(dk) && S.throttle >= 0.9 && !S.reverse) {
+        S.catHold += dt;
+        if (S.catHold < 1.5) return 0;                                                         // retenue
+        S.cat = true; S.catHold = 0; Snd.beep(240, 0.5, 0.06); toast('Catapulte ! Cabrez en bout de pont', 'ok');
+      } else if (!S.cat) S.catHold = 0;
+      if (S.cat) {
+        const rem = CV.CAT1 - dk.lz, vt = AC.vr * 1.25;
+        if (rem <= 2 || S.roll >= vt) S.cat = false;
+        else return Math.max(a, (vt * vt - S.roll * S.roll) / (2 * rem));
+      }
+      // Brin accroché : décélération jusqu'à l'arrêt ~75 m plus loin (la poussée n'y change rien)
+      if (S.trap) {
+        if (S.roll <= 0.6) { S.roll = 0; toast(`Appontage réussi · brin n° ${S.trap.wire}`, 'ok'); Snd.beep(660, 0.12); S.trap = null; return 0; }
+        return -Math.max(5, S.roll * S.roll / (2 * Math.max(3, S.trap.stop - dk.lz)));
+      }
+      return a;
     }
 
     // Commandes à rappel : la gouverne suit la touche tant qu'elle est maintenue, puis revient au neutre
@@ -2436,12 +3016,14 @@
       if (S.invert) pitchIn = -pitchIn;
       let rollIn = (dn('arrowright', '6') ? 1 : 0) - (dn('arrowleft', '4') ? 1 : 0);
       if (TILT.on) { if (!pitchIn) pitchIn = TILT.p; if (!rollIn) rollIn = TILT.r; }   // inclinaison de l'appareil (analogique)
-      const yawIn = (dn('a', 'q') ? 1 : 0) - (dn('d', 'e') ? 1 : 0);
+      if (PAD.on) { if (!pitchIn) pitchIn = S.invert ? -PAD.p : PAD.p; if (!rollIn) rollIn = PAD.r; }   // manette (analogique)
+      const yawIn = ((dn('a', 'q') ? 1 : 0) - (dn('d', 'e') ? 1 : 0)) || (PAD.on ? PAD.y : 0);
       S.ctl.p = ctlStep(S.ctl.p, pitchIn, dt);
       S.ctl.r = ctlStep(S.ctl.r, rollIn, dt);
       S.ctl.y = ctlStep(S.ctl.y, yawIn, dt);
       if (dn('z', 'w')) S.throttle += 0.5 * dt;
       if (dn('s')) S.throttle -= 0.5 * dt;
+      if (PAD.on) S.throttle += PAD.thr * 0.6 * dt;
       S.throttle = clamp(S.throttle, 0, 1);
       S.braking = S.onGround && !!keys[' '];
       S.gearPos += clamp(S.gearTarget - S.gearPos, -dt / 3, dt / 3);
@@ -2452,7 +3034,7 @@
       const rpmT = S.fuel > 0 ? 700 + S.throttle * (AC.rpmMax - 900) + S.speed * 4 : S.speed * 6;
       S.rpm += (rpmT - S.rpm) * Math.min(1, dt * 3);
 
-      const ground0 = terrainHeight(plane.position.x, plane.position.z);
+      const ground0 = groundAt(plane.position.x, plane.position.z);
       const agl0 = plane.position.y - GEAR - ground0;
       windPrev.copy(windNow); windAt(agl0, simT, windNow);
       updateAirMass(dt, plane.position.x, plane.position.y, plane.position.z, agl0);
@@ -2467,6 +3049,8 @@
         const air = S.roll + head;
         S.speed = Math.max(0, air);
         let a = thrust - dragK * air * Math.abs(air);
+        const dk0 = deckAt(plane.position.x, plane.position.z), lz0 = dk0 ? dk0.lz : 0, ship = dk0 ? dk0.ap : null;
+        if (dk0) a = carrierGround(dk0, a, dt); else { S.cat = false; S.trap = null; S.catHold = 0; }
         if (S.roll === 0 && Math.abs(a) < 1.2) a = 0;           // frottement statique
         if (S.roll !== 0 || a !== 0) {
           S.roll += a * dt;
@@ -2474,20 +3058,38 @@
           S.roll = Math.abs(S.roll) <= fr ? 0 : S.roll - Math.sign(S.roll) * fr;
         }
         S.roll = clamp(S.roll, -6, 200);
-        // Direction au sol + effet girouette du vent de travers
+        // Direction au sol + effet girouette du vent de travers (bloquée pendant la catapulte et l'appontage)
         const sf = clamp(S.roll / 8, -1, 1);
-        S.heading += (S.ctl.y - S.ctl.r) * 0.6 * dt * sf;
-        const crossR = -(windNow.x * (-fz) + windNow.z * fx);
-        S.heading -= crossR * 0.012 * dt * clamp(Math.abs(S.roll) / 6, 0, 1);
+        if (!S.cat && !S.trap) {
+          S.heading += (S.ctl.y - S.ctl.r) * 0.6 * dt * sf;
+          const crossR = -(windNow.x * (-fz) + windNow.z * fx);
+          S.heading -= crossR * 0.012 * dt * clamp(Math.abs(S.roll) / 6, 0, 1);
+        }
         plane.quaternion.setFromEuler(eul.set(0, S.heading, 0));
         plane.position.x += Math.sin(S.heading) * S.roll * dt;
         plane.position.z += Math.cos(S.heading) * S.roll * dt;
-        plane.position.y = GEAR;
         S.vsEff = AC.stall; S.qr = 0; S.stalled = S.stallWarn = false;
-        if (pitchIn > 0 && S.speed >= AC.vr && !S.reverse) {
-          S.onGround = false; S.vy = 1.5; plane.rotateX(-0.08);
-          S.va.set(fx * S.roll - windNow.x, S.vy, fz * S.roll - windNow.z);   // vitesse air = vitesse sol − vent
-          onTakeoff();
+        // Brins d'arrêt : la crosse (jets, sortie avec le train) accroche le brin franchi en roulant vers la proue
+        const dk1 = deckAt(plane.position.x, plane.position.z);
+        if (dk0 && dk1 && !S.trap && S.roll > 12 && hookDown()) {
+          const i = CV.WIRES.findIndex(w => lz0 < w && dk1.lz >= w);
+          if (i >= 0) { S.trap = { stop: dk1.lz + 75, wire: i + 1 }; S.cat = false; Snd.beep(160, 0.3, 0.06); }
+        }
+        const sfc = surfaceAt(plane.position.x, plane.position.z);
+        if (sfc.y < S.groundY - 2.5) {                          // bout du pont (ou bord d'une falaise) : l'avion quitte le sol
+          S.onGround = false; S.vy = 0;
+          S.va.set(fx * S.roll - windNow.x, 0, fz * S.roll - windNow.z);
+          if (S.roll > AC.stall) plane.rotateX(-0.1);           // rotation en bout de catapulte
+          onTakeoff(ship);
+        } else {
+          if (sfc.water) return crash(sfc.lake ? "L'avion a roulé dans le lac" : "L'avion est tombé à l'eau");
+          if (!sfc.deck && sfc.slope > 0.35) return crash('Sortie de piste dans le relief');
+          plane.position.y = sfc.y + GEAR; S.groundY = sfc.y;
+          if (pitchIn > 0 && S.speed >= AC.vr && !S.reverse) {
+            S.onGround = false; S.vy = 1.5; plane.rotateX(-0.08);
+            S.va.set(fx * S.roll - windNow.x, S.vy, fz * S.roll - windNow.z);   // vitesse air = vitesse sol − vent
+            onTakeoff(ship);
+          }
         }
       } else {
         S.reverse = false;
@@ -2561,7 +3163,12 @@
         plane.position.y += (S.va.y + S.wAir) * dt;
         plane.position.z += (S.va.z + windNow.z) * dt;
         if (S.speed > AC.vne + 18) return crash('Rupture structurelle : vitesse maximale dépassée');
-        if (plane.position.y <= GEAR) {
+        const sfc = surfaceAt(plane.position.x, plane.position.z);
+        if (plane.position.y <= sfc.y + GEAR) {
+          if (sfc.water) return crash(sfc.lake ? 'Amerrissage dans le lac : avion perdu' : "Amerrissage : l'avion a coulé");
+          if (plane.position.y < sfc.y + GEAR - 2.5) return crash(sfc.deck ? 'Collision avec la coque du porte-avions' : 'Collision avec le relief');
+          if (!sfc.deck && sfc.slope > 0.2) return crash('Collision avec le relief');
+          const deckLz = sfc.deck ? sfc.deck.lz : null;
           const gx = S.va.x + windNow.x, gz = S.va.z + windNow.z;
           const descent = S.va.y + S.wAir;
           const hl = Math.hypot(vF.x, vF.z) || 1, fx = vF.x / hl, fz = vF.z / hl;
@@ -2572,14 +3179,16 @@
           if (descent < -7) return crash(`Atterrissage trop brutal (${descent.toFixed(1)} m/s)`);
           if (Math.abs(lateral) > 6) return crash(`Train arraché : dérive latérale de ${Math.abs(lateral).toFixed(1)} m/s`);
           if (Math.abs(vR.y) > 0.3 || vU.y < 0.85 || vF.y < -0.2) return crash("Mauvaise assiette à l'atterrissage");
-          S.onGround = true; S.vy = 0; S.heading = Math.atan2(fx, fz); S.roll = along; plane.position.y = GEAR;
+          S.onGround = true; S.vy = 0; S.heading = Math.atan2(fx, fz); S.roll = along;
+          S.groundY = sfc.y; plane.position.y = sfc.y + GEAR;
           onTouchdown(descent, lateral);
+          if (deckLz != null && hookDown() && deckLz > CV.WIRES[CV.WIRES.length - 1] + 4) toast('Bolter ! Brins manqués : plein gaz et remontez', 'caution');
         }
       }
 
       const px = plane.position.x, pz = plane.position.z;
-      const ground = terrainHeight(px, pz);
-      if (ground > 0 && plane.position.y < ground + 1) return crash('Collision avec le relief');
+      if (carrierHit(px, plane.position.y, pz)) return crash("Collision avec l'îlot du porte-avions");
+      const ground = groundAt(px, pz);
 
       // Métriques (référentiel sol)
       vF.set(0, 0, 1).applyQuaternion(plane.quaternion);
@@ -2632,7 +3241,7 @@
 
     // ════════════════════════ Fin de vol / records ════════════════════════
     function logFlight(rec) {
-      rec.date = new Date().toISOString(); rec.ac = AC.name;
+      rec.date = new Date().toISOString(); rec.ac = AC.name; rec.map = MAP.id;
       DB.flights.unshift(rec); DB.flights = DB.flights.slice(0, 200); persist();
     }
     function updateBests(f, vs) {
@@ -2645,7 +3254,8 @@
       if (vs != null && (b.softest == null || Math.abs(vs) < Math.abs(b.softest))) b.softest = vs;
       persist();
     }
-    const routeKey = f => f.route + (f.wps ? ` (+${f.wps} WP)` : '') + ` · ${f.ac || 'Sirocco'}`;
+    const mapTag = id => id && id !== 'vallee' && MAPS[id] ? MAPS[id].name + ' · ' : '';
+    const routeKey = f => mapTag(f.map) + f.route + (f.wps ? ` (+${f.wps} WP)` : '') + ` · ${f.ac || 'Sirocco'}`;
     function bestTimeFor(key) { let best = null; for (const f of DB.flights) if (f.type === 'Voyage' && f.status === 'Réussi' && routeKey(f) === key && (best == null || f.time < best)) best = f.time; return best; }
     const kv = rows => `<table class="kv">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
 
@@ -2713,6 +3323,7 @@
     // ════════════════════════ Monde animé ════════════════════════
     function updateTruck(dt) {
       const t = truckState;
+      if (!ROAD_LEN) return;
       truck.position.z += t.dir * t.speed * dt;
       if (Math.abs(truck.position.z) > ROAD_LEN / 2 - 20) { t.dir *= -1; truck.position.z = Math.sign(truck.position.z) * (ROAD_LEN / 2 - 20); }
       truck.position.x = ROAD_X - 3.5 * t.dir;
@@ -2721,11 +3332,12 @@
     }
     function updateClouds(dt) {
       windAt(400, simT, windHi);
-      const lim = WORLD + 400;
+      // Nuages recyclés autour de l'avion : un nuage qui sort du carré de visibilité réapparaît du côté opposé
+      const lim = GFX.fog * 1.1, cx = plane.position.x, cz = plane.position.z;
       for (const c of clouds) {
         c.position.x += windHi.x * dt; c.position.z += windHi.z * dt;
-        if (c.position.x > lim) c.position.x -= 2 * lim; else if (c.position.x < -lim) c.position.x += 2 * lim;
-        if (c.position.z > lim) c.position.z -= 2 * lim; else if (c.position.z < -lim) c.position.z += 2 * lim;
+        if (c.position.x - cx > lim) c.position.x -= 2 * lim; else if (c.position.x - cx < -lim) c.position.x += 2 * lim;
+        if (c.position.z - cz > lim) c.position.z -= 2 * lim; else if (c.position.z - cz < -lim) c.position.z += 2 * lim;
       }
     }
     function updateWindsocks(t) {
@@ -2766,7 +3378,7 @@
       S.bank = Math.atan2(-vR.y, vU.y) / DEG;
       S.hdg = compassOf(vF.x, vF.z);
       S.alt = Math.max(0, plane.position.y - GEAR);
-      S.ground = terrainHeight(plane.position.x, plane.position.z);
+      S.ground = groundAt(plane.position.x, plane.position.z);
       S.agl = Math.max(0, plane.position.y - GEAR - S.ground);
       const hl = Math.hypot(vF.x, vF.z) || 1, fx = vF.x / hl, fz = vF.z / hl;
       S.head = -(windNow.x * fx + windNow.z * fz);
@@ -2782,11 +3394,11 @@
         const dest = apById(mission.to);
         target = mission.idx < mission.wps.length
           ? { ...mission.wps[mission.idx], name: 'WP' + (mission.idx + 1), apt: false }
-          : { x: dest.x, z: dest.z, name: `${dest.id} · ${dest.name}`, apt: true };
+          : { x: dest.x, z: dest.z, y: dest.y, name: `${dest.id} · ${dest.name}`, apt: true };
         from = mission.idx === 0 ? apById(mission.from) : mission.wps[mission.idx - 1];
       } else {
         const ap = nearestAirport(px, pz);
-        target = { x: ap.x, z: ap.z, name: `${ap.id} · ${ap.name}`, apt: true };
+        target = { x: ap.x, z: ap.z, y: ap.y, name: `${ap.id} · ${ap.name}`, apt: true };
       }
       const dx = target.x - px, dz = target.z - pz, dist = Math.hypot(dx, dz);
       NAV.target = target; NAV.dist = dist; NAV.brg = compassOf(dx, dz);
@@ -2797,7 +3409,7 @@
         NAV.dtk = compassOf(lx, lz);
         NAV.xtk = (lx * (pz - from.z) - lz * (px - from.x)) / ll;
       }
-      NAV.gpAlt = target.apt && dist < 4000 ? dist * Math.tan(3 * DEG) : null;
+      NAV.gpAlt = target.apt && dist < 4000 ? (target.y || 0) + dist * Math.tan(3 * DEG) : null;   // plan de 3° vers le seuil (altiport, pont)
       let remaining = dist;
       if (mission.active) {
         let prev = target;
@@ -2892,6 +3504,24 @@
       g.fillStyle = '#5ad1ff'; g.fillRect(cx - S.ctl.y * r - 3, by - 5, 6, 10);
     }
 
+    // Relief du radar : petite image recalculée à chaque image, colorée selon la marge au-dessus du terrain
+    // (rouge = plus haut que l'avion, orange = moins de 150 m dessous, vert = dégagé, bleu = eau)
+    const RDT = { n: 64, c: null, g: null, img: null };
+    function drawRadarTerrain(g, R, k, px, pz, ch, sh) {
+      if (!RDT.c) { RDT.c = document.createElement('canvas'); RDT.c.width = RDT.c.height = RDT.n; RDT.g = RDT.c.getContext('2d'); RDT.img = RDT.g.createImageData(RDT.n, RDT.n); }
+      const n = RDT.n, d = RDT.img.data, s = 2 * R / n, alt = plane.position.y - GEAR;
+      for (let v = 0; v < n; v++) for (let u = 0; u < n; u++) {
+        const a = ((u + 0.5) * s - R) / k, b = (R - (v + 0.5) * s) / k;           // inverse de P() (radar nez en haut)
+        const e = a * ch + b * sh, nn = -a * sh + b * ch, h = terrainHeight(px - e, pz + nn), o = (v * n + u) * 4;
+        if (h < SEA) { d[o] = 40; d[o + 1] = 100; d[o + 2] = 170; d[o + 3] = 120; continue; }
+        const diff = h - alt;
+        if (diff > 0) { d[o] = 255; d[o + 1] = 77; d[o + 2] = 77; d[o + 3] = 150; }
+        else if (diff > -150) { d[o] = 255; d[o + 1] = 181; d[o + 2] = 71; d[o + 3] = 120; }
+        else { d[o] = 120; d[o + 1] = 170; d[o + 2] = 150; d[o + 3] = clamp(25 + h / 12, 25, 110); }
+      }
+      RDT.g.putImageData(RDT.img, 0, 0);
+      g.imageSmoothingEnabled = true; g.drawImage(RDT.c, 0, 0, 2 * R, 2 * R);
+    }
     function drawRadar(t) {
       const { g, W } = RD, R = W / 2, range = RADAR_RANGES[radarRange], k = (R - 14) / range;
       const px = plane.position.x, pz = plane.position.z, H = S.hdg * DEG, ch = Math.cos(H), sh = Math.sin(H);
@@ -2900,14 +3530,7 @@
       g.beginPath(); g.arc(R, R, R - 1, 0, Math.PI * 2); g.clip();
       const bg = g.createRadialGradient(R, R, 0, R, R, R); bg.addColorStop(0, '#0d2a24'); bg.addColorStop(1, '#06120f');
       g.fillStyle = bg; g.fillRect(0, 0, W, W);
-      for (const m of mountains) {
-        const [x, y] = P(m.x, m.z), rr = m.r * k;
-        if (x + rr < 0 || x - rr > W || y + rr < 0 || y - rr > W) continue;
-        const diff = m.h - plane.position.y;
-        const col = diff > 0 ? '255,77,77' : diff > -150 ? '255,181,71' : '120,170,150';
-        const gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, `rgba(${col},.6)`); gr.addColorStop(1, `rgba(${col},0)`);
-        g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.fill();
-      }
+      drawRadarTerrain(g, R, k, px, pz, ch, sh);
       g.fillStyle = 'rgba(70,140,220,.5)';
       for (const l of LAKES) { const [x, y] = P(l.x, l.z); g.beginPath(); g.arc(x, y, l.r * k, 0, Math.PI * 2); g.fill(); }
       g.strokeStyle = 'rgba(90,209,255,.18)'; g.lineWidth = 1;
@@ -2918,11 +3541,12 @@
         trail.forEach((p, i) => { const [x, y] = P(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
       }
       g.strokeStyle = 'rgba(80,80,80,.9)'; g.lineWidth = Math.max(1.5, 14 * k);
-      { const [a, b] = P(ROAD_X, -ROAD_LEN / 2), [c, d] = P(ROAD_X, ROAD_LEN / 2); ln(g, a, b, c, d); }
+      if (ROAD_LEN) { const [a, b] = P(ROAD_X, -ROAD_LEN / 2), [c, d] = P(ROAD_X, ROAD_LEN / 2); ln(g, a, b, c, d); }
       g.font = "700 10px 'JetBrains Mono', monospace"; g.textAlign = 'center';
       for (const ap of AIRPORTS) {
-        const a = toWorld(ap, 0, -RUNWAY_LEN / 2), b = toWorld(ap, 0, RUNWAY_LEN / 2), [x1, y1] = P(a.x, a.z), [x2, y2] = P(b.x, b.z);
-        g.strokeStyle = '#e6eef7'; g.lineWidth = Math.max(2.5, RUNWAY_W * k); ln(g, x1, y1, x2, y2);
+        const half = ap.carrier ? CV.L / 2 : RUNWAY_LEN / 2;
+        const a = toWorld(ap, 0, -half), b = toWorld(ap, 0, half), [x1, y1] = P(a.x, a.z), [x2, y2] = P(b.x, b.z);
+        g.strokeStyle = ap.carrier ? '#9fb3c8' : '#e6eef7'; g.lineWidth = Math.max(2.5, (ap.carrier ? CV.W : RUNWAY_W) * k); ln(g, x1, y1, x2, y2);
         const [cx, cy] = P(ap.x, ap.z); g.fillStyle = '#e6eef7'; g.fillText(ap.id, cx, cy - 10);
       }
       if (mission.active) {
@@ -2934,7 +3558,7 @@
           g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fill();
         });
       }
-      { const [x, y] = P(truck.position.x, truck.position.z); g.fillStyle = '#ffd34d'; g.fillRect(x - 2.5, y - 2.5, 5, 5); }
+      if (ROAD_LEN) { const [x, y] = P(truck.position.x, truck.position.z); g.fillStyle = '#ffd34d'; g.fillRect(x - 2.5, y - 2.5, 5, 5); }
       const sa = (t * 1.6) % (Math.PI * 2);
       for (let i = 0; i < 18; i++) {
         g.fillStyle = `rgba(91,240,138,${0.11 * (1 - i / 18)})`;
@@ -2985,10 +3609,18 @@
       const { g, W, H } = MP, k = mapView.scale;
       const P = (x, z) => [W / 2 - (x - mapView.x) * k, H / 2 - (z - mapView.z) * k];
       g.clearRect(0, 0, W, H);
-      g.fillStyle = '#3f6230'; g.fillRect(0, 0, W, H);
-      { const [ax, ay] = P(WORLD, WORLD), [bx, by] = P(-WORLD, -WORLD); g.fillStyle = '#5f8a45'; g.fillRect(ax, ay, bx - ax, by - ay); }
+      g.fillStyle = '#1d4f73'; g.fillRect(0, 0, W, H);
+      // Relief ombré + courbes de niveau (image précalculée par buildMapImage, couvre ±TER.E)
+      if (MAPIMG) { const [ax, ay] = P(TER.E, TER.E); g.imageSmoothingEnabled = true; g.drawImage(MAPIMG, ax, ay, 2 * TER.E * k, 2 * TER.E * k); }
+      // Hors zone de vol : assombri
+      {
+        const [ax, ay] = P(WORLD, WORLD), [bx, by] = P(-WORLD, -WORLD);
+        g.fillStyle = 'rgba(5,10,18,.38)'; g.beginPath(); g.rect(0, 0, W, H); g.rect(ax, ay, bx - ax, by - ay); g.fill('evenodd');
+        g.strokeStyle = 'rgba(255,90,90,.6)'; g.lineWidth = 1.5; g.strokeRect(ax, ay, bx - ax, by - ay);
+      }
+      const gs = WORLD > 5000 && k < 0.12 ? 1000 : 500;
       g.strokeStyle = 'rgba(255,255,255,.07)'; g.lineWidth = 1;
-      for (let v = -WORLD; v <= WORLD; v += 500) {
+      for (let v = -WORLD; v <= WORLD; v += gs) {
         let [x1, y1] = P(v, -WORLD), [x2, y2] = P(v, WORLD); ln(g, x1, y1, x2, y2);
         [x1, y1] = P(-WORLD, v);[x2, y2] = P(WORLD, v); ln(g, x1, y1, x2, y2);
       }
@@ -2997,23 +3629,22 @@
         g.fillStyle = '#2f6f9f'; g.beginPath(); g.arc(x, y, l.r * k, 0, Math.PI * 2); g.fill();
       }
       g.font = "600 10px 'JetBrains Mono', monospace"; g.textAlign = 'center'; g.textBaseline = 'middle';
-      for (const m of mountains) {
-        const [x, y] = P(m.x, m.z), r = m.r * k;
-        const gr = g.createRadialGradient(x, y, 0, x, y, r);
-        gr.addColorStop(0, '#f4f6f8'); gr.addColorStop(.28, '#c9ccd1'); gr.addColorStop(.6, '#8d929a'); gr.addColorStop(1, 'rgba(95,100,108,.1)');
-        g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-        if (r > 22) { g.fillStyle = 'rgba(15,20,26,.85)'; g.fillText('▲' + Math.round(m.h), x, y); }
+      if (k > 0.025) for (const p of PEAKS) {
+        const [x, y] = P(p.x, p.z); if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
+        g.fillStyle = 'rgba(15,20,26,.75)'; g.fillText('▲ ' + Math.round(p.h), x + 1, y + 1);
+        g.fillStyle = '#f4f6f8'; g.fillText('▲ ' + Math.round(p.h), x, y);
       }
       g.strokeStyle = '#3d3f44'; g.lineWidth = Math.max(2, 14 * k);
-      { const [a, b] = P(ROAD_X, -ROAD_LEN / 2), [c, d] = P(ROAD_X, ROAD_LEN / 2); ln(g, a, b, c, d); }
+      if (ROAD_LEN) { const [a, b] = P(ROAD_X, -ROAD_LEN / 2), [c, d] = P(ROAD_X, ROAD_LEN / 2); ln(g, a, b, c, d); }
       for (const ap of AIRPORTS) {
-        const a = toWorld(ap, 0, -RUNWAY_LEN / 2), b = toWorld(ap, 0, RUNWAY_LEN / 2), [x1, y1] = P(a.x, a.z), [x2, y2] = P(b.x, b.z);
-        g.strokeStyle = '#2a2c30'; g.lineWidth = Math.max(5, RUNWAY_W * k); ln(g, x1, y1, x2, y2);
+        const half = ap.carrier ? CV.L / 2 : RUNWAY_LEN / 2;
+        const a = toWorld(ap, 0, -half), b = toWorld(ap, 0, half), [x1, y1] = P(a.x, a.z), [x2, y2] = P(b.x, b.z);
+        g.strokeStyle = ap.carrier ? '#5d6670' : '#2a2c30'; g.lineWidth = Math.max(ap.carrier ? 7 : 5, (ap.carrier ? CV.W : RUNWAY_W) * k); ln(g, x1, y1, x2, y2);
         g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 1; g.setLineDash([4, 4]); ln(g, x1, y1, x2, y2); g.setLineDash([]);
-        const [cx, cy] = P(ap.x, ap.z), label = `${ap.id} · ${ap.name}`;
+        const [cx, cy] = P(ap.x, ap.z), label = `${ap.carrier ? '⚓ ' : ''}${ap.id} · ${ap.name}${ap.y > 50 && !ap.carrier ? ` · ${Math.round(ap.y)} m` : ''}`;
         g.font = "700 12px 'Rajdhani', sans-serif"; const tw = g.measureText(label).width + 12;
         g.fillStyle = 'rgba(9,13,19,.82)'; g.fillRect(cx - tw / 2, cy - 30, tw, 18);
-        g.fillStyle = '#e6eef7'; g.fillText(label, cx, cy - 21);
+        g.fillStyle = ap.carrier ? '#9ee7ff' : '#e6eef7'; g.fillText(label, cx, cy - 21);
       }
       if (trail.length > 1) {
         g.strokeStyle = 'rgba(90,209,255,.9)'; g.lineWidth = 2; g.beginPath();
@@ -3032,7 +3663,7 @@
       };
       drawRoute([apById(plan.from), ...plan.wps, apById(plan.to)], '#9ee7ff', [7, 5], -1);
       if (mission.active) drawRoute([apById(mission.from), ...mission.wps, apById(mission.to)], '#ff5ad8', [], mission.idx);
-      { const [x, y] = P(truck.position.x, truck.position.z); g.fillStyle = '#ffd34d'; g.fillRect(x - 3, y - 3, 6, 6); }
+      if (ROAD_LEN) { const [x, y] = P(truck.position.x, truck.position.z); g.fillStyle = '#ffd34d'; g.fillRect(x - 3, y - 3, 6, 6); }
       {
         const [x, y] = P(plane.position.x, plane.position.z);
         g.save(); g.translate(x, y); g.rotate(S.hdg * DEG); g.fillStyle = '#ffd34d'; g.strokeStyle = '#000'; g.lineWidth = 1.2;
@@ -3045,8 +3676,8 @@
       g.beginPath(); g.moveTo(0, -10); g.lineTo(-4, -4); g.lineTo(4, -4); g.closePath(); g.fill(); g.restore();
       g.fillStyle = '#e6eef7'; g.textAlign = 'left'; g.font = "600 11px 'JetBrains Mono', monospace";
       g.fillText(`Vent ${pad3(WX.from)}° · ${kmh(WX.base)} km/h`, 42, 26);
-      const km = 1000 * k; g.strokeStyle = '#fff'; g.lineWidth = 2; ln(g, 16, H - 40, 16 + km, H - 40);
-      g.fillStyle = '#fff'; g.fillText('1 km', 16, H - 50);
+      const sc = 1000 * k > 40 ? 1 : 5, km = sc * 1000 * k; g.strokeStyle = '#fff'; g.lineWidth = 2; ln(g, 16, H - 40, 16 + km, H - 40);
+      g.fillStyle = '#fff'; g.fillText(sc + ' km', 16, H - 50);
       g.textAlign = 'center'; g.fillStyle = '#ff5a5a'; g.font = "700 14px 'JetBrains Mono', monospace"; g.fillText('N ▲', W - 30, 62);
     }
 
@@ -3129,9 +3760,15 @@
           if (AC.retract && S.gearPos > 0.02 && S.speed > AC.vle) A.push(['VITESSE TRAIN', 'caution']);
           if (Math.abs(S.bank) > 60) A.push(['INCLINAISON', 'caution']);
           if (S.turbLevel > 0.8) A.push(['TURBULENCES', 'caution']);
-          if (Math.abs(plane.position.x) > WORLD || Math.abs(plane.position.z) > WORLD) A.push(['HORS ZONE', 'caution']);
+          if (Math.abs(plane.position.x) > WORLD || Math.abs(plane.position.z) > WORLD) A.push(['HORS ZONE · DEMI-TOUR', 'caution']);
+          const cv = CARRIERS.find(c => Math.hypot(c.x - plane.position.x, c.z - plane.position.z) < 3000);
+          if (cv && S.agl < 400 && AC.jet) A.push([hookDown() ? 'APPONTAGE · CROSSE SORTIE' : 'CROSSE RENTRÉE (G)', hookDown() ? 'info' : 'caution']);
           A.push(['EN VOL', 'ok']);
-        } else if (S.speed >= AC.vr && !S.reverse) A.push([`VR · CABREZ (${S.invert ? '8 / ↑' : '5 / ↓'})`, 'ok']);
+        } else if (S.cat) A.push(['CATAPULTE · LANCEMENT', 'ok']);
+        else if (S.trap) A.push([`BRIN N° ${S.trap.wire} ACCROCHÉ`, 'ok']);
+        else if ((() => { const dk = deckAt(plane.position.x, plane.position.z); return dk && onCatMark(dk); })())
+          A.push([S.catHold > 0 ? `CATAPULTE ARMÉE ${Math.round(S.catHold / 1.5 * 100)} %` : 'CATAPULTE · PLEIN GAZ (Z) MAINTENU', 'info']);
+        else if (S.speed >= AC.vr && !S.reverse) A.push([`VR · CABREZ (${S.invert ? '8 / ↑' : '5 / ↓'})`, 'ok']);
         else if (S.refueling) A.push(['RAVITAILLEMENT', 'info']);
         else if (S.roll === 0 && S.throttle === 0) A.push(['AU SOL · GAZ (Z)', 'info']);
         else A.push([S.roll < 0 ? 'MARCHE ARRIÈRE' : S.braking ? 'FREINAGE' : 'ROULAGE', 'info']);
@@ -3221,6 +3858,13 @@
     }
     function setWx(changes, preset = 'perso') { Object.assign(WX, changes); WX.preset = preset; persist(); renderWeather(); }
 
+    // Listes Départ / Destination et sélecteur de carte (reconstruits à chaque chargement de carte)
+    function fillAirportSelects() {
+      const opts = AIRPORTS.map(a => `<option value="${a.id}">${a.carrier ? '⚓ ' : ''}${a.id} · ${esc(a.name)}${a.y > 50 && !a.carrier ? ` (${Math.round(a.y)} m)` : ''}</option>`).join('');
+      $('pFrom').innerHTML = opts; $('pTo').innerHTML = opts;
+      $('mapPick').innerHTML = MAP_ORDER.map(id => `<button data-map="${id}" class="${MAP && MAP.id === id ? 'on' : ''}">${MAPS[id].name}<small>${Math.round(MAPS[id].world / 500)} km</small></button>`).join('');
+      setText('mapDesc', MAP ? MAP.desc : '');
+    }
     function renderPlan() {
       $('pFrom').value = plan.from; $('pTo').value = plan.to;
       $('pWps').innerHTML = plan.wps.length
@@ -3322,8 +3966,11 @@
       $('wxRandom').onclick =() => setWx({ from: Math.round(rnd(0, 71)) * 5, base: Math.round(rnd(0, 16)), gust: Math.round(rnd(0, 12)) / 20, turb: Math.round(rnd(0, 14)) / 20 });
 
       // Plan de vol
-      const opts = AIRPORTS.map(a => `<option value="${a.id}">${a.id} · ${a.name}</option>`).join('');
-      $('pFrom').innerHTML = opts; $('pTo').innerHTML = opts;
+      $('mapPick').onclick = e => {
+        const id = e.target.closest('[data-map]')?.dataset.map; if (!id || id === MAP.id) return;
+        if (S.airborne && !S.crashed) showDialog('Changer de carte', `Charger <b>${MAPS[id].name}</b> ? Le vol en cours sera perdu.`, [['Annuler', null], ['Charger', () => switchMap(id), true]]);
+        else switchMap(id);
+      };
       $('pFrom').onchange = e => { plan.from = e.target.value; renderPlan(); };
       $('pTo').onchange = e => { plan.to = e.target.value; renderPlan(); };
       $('pWps').onclick = e => { const i = e.target.dataset.rm; if (i != null) { plan.wps.splice(+i, 1); renderPlan(); } };
@@ -3522,7 +4169,7 @@
       CINE.fov = snap ? target : CINE.fov + (target - CINE.fov) * (1 - Math.exp(-dt * 2.5));
       if (Math.abs(camera.fov - CINE.fov) > 0.01) { camera.fov = CINE.fov; camera.updateProjectionMatrix(); }
     }
-    const camFloor = p => { p.y = Math.max(p.y, terrainHeight(p.x, p.z) + 2); return p; };
+    const camFloor = p => { p.y = Math.max(p.y, groundAt(p.x, p.z) + 2); return p; };
     // Poursuite : ressort critique sur le décalage caméra (pas sur la position monde → pas de retard à grande vitesse)
     function chaseCam(dt, snap, close = false) {
       const v = S.vel.length(), L = AC.look;
@@ -3570,7 +4217,7 @@
         CINE.dur = Math.min(9, (v * 3 + 40) / v + 2.5);
       } else if (SHOTS[s] === 'ground') {
         CINE.anchor.copy(plane.position).addScaledVector(cDir, v * 4 + 80).addScaledVector(vR, CINE.side * rnd(50, 110));
-        CINE.anchor.y = terrainHeight(CINE.anchor.x, CINE.anchor.z) + 1.8;
+        CINE.anchor.y = groundAt(CINE.anchor.x, CINE.anchor.z) + 1.8;
         CINE.dur = Math.min(10, (v * 4 + 80) / v + 3);
       }
       snapCamera = true;
@@ -3621,7 +4268,7 @@
 
     function toggleRec() { if (RP.active) return; if (REC.on) stopRec(); else startRec(); }
     function startRec() {
-      Object.assign(REC, { on: true, acc: 1, frames: [], ac: AC.id, from: placeName(plane.position.x, plane.position.z), dist: 0 });
+      Object.assign(REC, { on: true, acc: 1, frames: [], ac: AC.id, map: MAP.id, from: placeName(plane.position.x, plane.position.z), dist: 0 });
       $('recBadge').classList.add('on'); Snd.beep(880, 0.08);
       toast('● Enregistrement du trajet (K pour arrêter)', 'info');
     }
@@ -3632,8 +4279,8 @@
       if (fr.length < REC_HZ * 3) { toast('Enregistrement trop court, ignoré', 'caution'); return; }
       const last = fr[fr.length - 1];
       const rec = {
-        id: Date.now(), date: new Date().toISOString(), ac: REC.ac, hz: REC_HZ,
-        name: `${REC.from} → ${placeName(last[0], last[2])}`, dur: fr.length / REC_HZ, dist: REC.dist, f: fr
+        id: Date.now(), date: new Date().toISOString(), ac: REC.ac, hz: REC_HZ, map: REC.map,
+        name: `${mapTag(REC.map)}${REC.from} → ${placeName(last[0], last[2])}`, dur: fr.length / REC_HZ, dist: REC.dist, f: fr
       };
       addReplay(rec);
       toast(`Trajet enregistré · ${rec.name} · ${fmtTime(rec.dur)} (Records : L)`, 'ok');
@@ -3663,6 +4310,7 @@
       if (S.airborne && !S.crashed && !confirm('Quitter le vol en cours pour revoir ce trajet ?')) return;
       if (REC.on) stopRec();
       closeAllModals();
+      if ((r.map || 'vallee') !== MAP.id && MAPS[r.map || 'vallee']) loadMap(r.map || 'vallee');   // le trajet a été filmé sur une autre carte
       if (r.ac !== AC.id && AIRCRAFT[r.ac]) { S.crashed = true; setAircraft(r.ac); }
       Object.assign(RP, { active: true, rec: r, t: 0, rate: 1, playing: true, prevCam: S.cam });
       Object.assign(S, { flight: null, airborne: false, onGround: false, crashed: false, stallWarn: false, gearWarn: false, terrainWarn: false, refueling: false });
@@ -3691,7 +4339,7 @@
       S.speed = A[7] + (B[7] - A[7]) * a; S.throttle = A[8]; S.gearPos = S.gearTarget = A[9];
       S.vel.set((B[0] - A[0]) * hz, (B[1] - A[1]) * hz, (B[2] - A[2]) * hz);
       S.gs = Math.hypot(S.vel.x, S.vel.z); S.vs = S.vel.y; S.accel = 0; S.g = 1;
-      S.onGround = plane.position.y <= GEAR + 0.05;
+      S.onGround = plane.position.y <= groundAt(plane.position.x, plane.position.z) + GEAR + 0.05;
       const sk = $('rpSeek'); if (document.activeElement !== sk) sk.value = Math.round(RP.t / r.dur * 1000);
       setText('rpTime', `${fmtTime(RP.t)} / ${fmtTime(r.dur)}`);
       setText('rpPlay', RP.playing ? '❚❚' : '▶'); setText('rpRate', '×' + RP.rate);
@@ -3713,6 +4361,44 @@
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
       a.download = `skyway-trajet-${r.name.replace(/[^A-Z0-9]+/gi, '-')}-${r.id}.json`; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    // ════════════════════════ Manette (Gamepad API, disposition standard Xbox / PlayStation) ════════════════════════
+    // Stick gauche : roulis / tangage (tirer = cabrer) · stick droit horizontal : palonnier · RT / LT : gaz + / −
+    // (RT à fond + plein gaz = postcombustion) · A : freins · B : train · X : missile · Y : caméra · LB : leurres
+    // RB : canon · Select : carte · Start : pause · R3 : vue arrière · croix ← : reverse · → : cible suivante · ↑↓ : portée radar
+    const PAD = { on: false, p: 0, r: 0, y: 0, thr: 0, prev: [], held: {} };
+    const PAD_HOLD = { 0: ' ', 5: 'f', 11: 'o' };                                   // boutons maintenus → touches
+    const PAD_TAP = { 1: 'g', 2: 'v', 3: 'c', 4: 'b', 8: 'm', 9: 'Escape', 14: 'x', 15: 'Tab' };   // appui → touche
+    addEventListener('gamepadconnected', e => toast(`🎮 Manette connectée : ${e.gamepad.id.replace(/\s*\(.*$/, '').slice(0, 40)}`, 'ok'));
+    addEventListener('gamepaddisconnected', () => { PAD.on = false; toast('Manette déconnectée', 'caution'); });
+    function padKey(key) {                                                             // simule une touche pour les deux écouteurs (moteur + combat)
+      dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+    }
+    function pollGamepad() {
+      const list = navigator.getGamepads ? navigator.getGamepads() : [];
+      let gp = null; for (const p of list) if (p && p.connected && p.axes.length >= 2) { gp = p; break; }
+      if (!gp) { if (PAD.on) { PAD.on = false; PAD.p = PAD.r = PAD.y = PAD.thr = 0; for (const k in PAD.held) keys[k] = false; PAD.held = {}; } return; }
+      PAD.on = true;
+      const ax = i => deadzone(gp.axes[i] || 0, 0.12, 0.95), bt = i => gp.buttons[i] ? gp.buttons[i].value || (gp.buttons[i].pressed ? 1 : 0) : 0;
+      const free = !anyModal() && !RP.active;
+      PAD.r = free ? ax(0) : 0; PAD.p = free ? ax(1) : 0; PAD.y = free ? -ax(2) : 0;
+      PAD.thr = free ? bt(7) - bt(6) : 0;
+      const hold = { ...PAD_HOLD };
+      if (free) for (const [b, k] of Object.entries(hold)) {
+        const on = bt(+b) > 0.5;
+        if (on && !PAD.held[k]) { keys[k] = true; PAD.held[k] = true; } else if (!on && PAD.held[k]) { keys[k] = false; delete PAD.held[k]; }
+      }
+      const ab = free && bt(7) > 0.95 && S.throttle > 0.9;                           // postcombustion
+      if (ab && !PAD.held.shift) { keys.shift = true; PAD.held.shift = true; } else if (!ab && PAD.held.shift) { keys.shift = false; delete PAD.held.shift; }
+      for (let i = 0; i < gp.buttons.length; i++) {
+        const down = bt(i) > 0.5, was = PAD.prev[i]; PAD.prev[i] = down;
+        if (!down || was) continue;
+        if (PAD_TAP[i] && (free || i === 8 || i === 9)) padKey(PAD_TAP[i]);
+        else if (free && i === 12) $('rngPlus').click();
+        else if (free && i === 13) $('rngMinus').click();
+      }
     }
 
     // ════════════════════════ Pilotage par inclinaison (mobile / tablette) ════════════════════════
@@ -3813,6 +4499,7 @@
     function animate() {
       requestAnimationFrame(animate);
       const raw = clock.getDelta(), dt = Math.min(raw, 0.1);
+      pollGamepad();
       updateDynRes(raw);
       if (!S.paused) {
         if (RP.active) {                                     // rejeu : la pose vient de l'enregistrement, pas de la physique
@@ -4026,6 +4713,9 @@
         <aside class="wxpanel">
           <span class="lbl">Appareil de combat</span>
           <div class="acpick" id="cbAc"></div>
+          <span class="lbl" style="margin-top:6px">Départ</span>
+          <div class="seg" id="cbStart"></div>
+          <span class="hint">Porte-avions : décollage à la catapulte et appontage sur brins, au large de la côte ouest.</span>
           <span class="lbl" style="margin-top:6px">Commandes de combat</span>
           <div class="psum">
             <div class="srow"><span><kbd>F</kbd> maintenu</span><b>Canon</b></div>
@@ -4229,6 +4919,10 @@
       const _crash = crash;
       crash = function (msg) { const was = S.crashed; _crash(msg); if (!was && CB.active) fail('Appareil perdu : ' + msg); };
 
+      // Changer de carte termine la mission en cours et efface les unités
+      const _loadMap = loadMap;
+      loadMap = function (id) { if (CB.active) endCombat(); cleanup(); CB.failed = false; return _loadMap(id); };
+
       const _reset = resetFlight;
       resetFlight = function () { if (CB.active || CB.failed) startLevel(CB.level); else _reset(); };
 
@@ -4418,7 +5112,7 @@
       }
       function avoidTerrain(e, tgt) {
         _d.copy(e.pos).addScaledVector(e.fwd, e.speed * 2.5);
-        const floor = Math.max(terrainHeight(e.pos.x, e.pos.z), terrainHeight(_d.x, _d.z)) + 160;
+        const floor = Math.max(groundAt(e.pos.x, e.pos.z), groundAt(_d.x, _d.z)) + 160;
         if (e.pos.y < floor || _d.y < floor) tgt.set(e.pos.x + e.fwd.x * 300, floor + 400, e.pos.z + e.fwd.z * 300);
         if (tgt.y > 1800) tgt.y = 1800;
       }
@@ -4441,7 +5135,7 @@
         e.vel.copy(e.fwd).multiplyScalar(e.speed);
         e.pos.addScaledVector(e.vel, dt);
         orient(e);
-        if (e.pos.y < terrainHeight(e.pos.x, e.pos.z) + 2) { killEnemy(e, " s'est écrasé"); return; }
+        if (e.pos.y < groundAt(e.pos.x, e.pos.z) + 2) { killEnemy(e, " s'est écrasé"); return; }
         if (S.crashed) return;
         const ang = Math.acos(clamp(e.fwd.dot(_b.copy(plane.position).sub(e.pos).normalize()), -1, 1));
         if (dist < 1100 && ang < 0.12) {
@@ -4526,7 +5220,7 @@
         e.mesh.rotation.z += dt * 2.5; e.mesh.rotation.x += dt * 0.6;
         e.smokeT = (e.smokeT || 0) - dt;
         if (e.smokeT <= 0) { puff(e.pos, 0x333333, 2.2, 2); e.smokeT = 0.05; }
-        if (e.pos.y < terrainHeight(e.pos.x, e.pos.z) + 1) {
+        if (e.pos.y < groundAt(e.pos.x, e.pos.z) + 1) {
           explode(e.pos.clone()); scene.remove(e.mesh); e.falling = false;
           CB.smokes.push({ pos: e.pos.clone(), t: 15, k: 0 });
         }
@@ -4557,7 +5251,7 @@
               if (segHit(prev, b.m.position, center(e), e.r)) { damageEnemy(e, b.dmg, b.m.position); CB.hits++; CB.hitFlash = 0.15; hit = true; break; }
             }
           } else if (!S.crashed && segHit(prev, b.m.position, plane.position, 6)) { damagePlayer(b.dmg); hit = true; }
-          if (!hit && b.m.position.y < terrainHeight(b.m.position.x, b.m.position.z)) { spark(b.m.position, 0xc9b28a); hit = true; }
+          if (!hit && b.m.position.y < groundAt(b.m.position.x, b.m.position.z)) { spark(b.m.position, 0xc9b28a); hit = true; }
           if (hit || b.life <= 0) { scene.remove(b.m); CB.bullets.splice(i, 1); }
         }
       }
@@ -4599,7 +5293,7 @@
               if (!S.crashed && segHit(prev, pos, plane.position, 10)) { damagePlayer(45); boom = true; }
             } else if (mis.target && mis.target.flare && segHit(prev, pos, mis.target.pos, 8)) boom = true;
           }
-          if (pos.y < terrainHeight(pos.x, pos.z)) boom = true;
+          if (pos.y < groundAt(pos.x, pos.z)) boom = true;
           if (boom && mis.owner === 'player') {
             for (const e of CB.enemies) {
               if (!e.alive) continue;
@@ -4755,7 +5449,7 @@
           id: 3, name: "Convoi fantôme", diff: 2, base: 'VAL', wx: 'venteux', time: 480,
           brief: "Un convoi ennemi descend la route vers le sud. Détruisez les cinq camions avant qu'ils ne quittent la zone. Deux batteries de DCA protègent la route.",
           tips: "Attaquez en piqué dans l'axe de la route. Si un camion atteint le sud de la route, la mission échoue.",
-          spawn: [{ kind: 'truck', n: 5, at: [ROAD_X, 1300], speed: 9 },
+          spawn: [{ kind: 'truck', n: 5, at: [90, 1300], speed: 9 },      // route de la carte Vallée
           { kind: 'aaa', n: 1, at: [150, 700] }, { kind: 'aaa', n: 1, at: [30, -600] },
           { kind: 'fighter', n: 2, at: [2600, 2600], spread: 150, alt: 700, skill: 0.4, delay: 70 }],
           goals: [{ kinds: ['truck'], label: "Détruire le convoi" }], fail: 'convoy', rtb: true
@@ -4797,7 +5491,7 @@
         target: null, lockT: 0, lockBeep: 0, warnBeep: 0, gunCd: 0, dmgFlash: 0, hitFlash: 0, shake: 0, radarDown: false, tDist: 0
       };
       const raw = Store.load() || {};
-      DB.combat = Object.assign({ unlocked: 1, best: {}, ac: 'epervier' }, raw.combat);
+      DB.combat = Object.assign({ unlocked: 1, best: {}, ac: 'epervier', start: 'base' }, raw.combat);
 
       function cleanup() {
         for (const e of CB.enemies) scene.remove(e.mesh);
@@ -4821,16 +5515,21 @@
       }
       function startLevel(i) {
         if (i + 1 > DB.combat.unlocked) return;
-        const L = LEVELS[i];
+        if (MAP.id !== 'vallee') { switchMap('vallee', () => startLevel(i)); return; }   // la campagne se joue sur la Vallée
+        const L = LEVELS[i], cv = DB.combat.start === 'carrier' ? CARRIERS[0] : null;
         closeAllModals(); cleanup();
         const p = WIND_PRESETS[L.wx]; Object.assign(WX, { base: p.base, gust: p.gust, turb: p.turb, preset: L.wx }); persist();
         mission.active = false; S.home = L.base;
         const want = AIRCRAFT[DB.combat.ac] && AIRCRAFT[DB.combat.ac].mil ? DB.combat.ac : 'epervier';
         if (AC.id !== want) { S.crashed = true; setAircraft(want); }
-        placeAtAirport(L.base);
-        if (L.air) airStart(L.air);
+        // Départ : base de la mission (piste ou en vol) ou catapulte du porte-avions, avec le temps de transit en plus
+        if (cv) S.home = cv.id;
+        placeAtAirport(cv ? cv.id : L.base);
+        if (L.air && !cv) airStart(L.air);
+        const b = apById(L.base), extra = cv ? Math.round(Math.hypot(cv.x - b.x, cv.z - b.z) / 160 + 25) : 0;
         const m = AC.mil;
         Object.assign(CB, {
+          timeLimit: L.time + extra,
           active: true, failed: false, level: i, t: 0, hp: 100, ammo: m.guns, msl: m.missiles, flr: m.flares,
           score: 0, kills: 0, shots: 0, hits: 0, target: null, lockT: 0, rtb: null, radarDown: false, dmgFlash: 0, shake: 0, gunCd: 0
         });
@@ -4841,10 +5540,11 @@
         updatePanel();
         showDialog(`Mission ${i + 1} · ${L.name}`,
           `<p class="dmsg">${esc(L.brief)}</p>` +
-          kv([['Base', `${L.base} · ${apById(L.base).name}`], ['Départ', L.air ? 'En vol' : 'Sur la piste'],
-          ['Météo', WIND_PRESETS[L.wx].label], ['Temps imparti', fmtTime(L.time)], ['Appareil', AC.name]]) +
-          `<h3>Objectifs</h3><ul>${L.goals.map(g => `<li>${esc(g.label)}</li>`).join('')}${L.rtb ? `<li>Se poser et s'arrêter à ${L.base}</li>` : ''}</ul>
-     <p class="hint">💡 ${esc(L.tips)}</p>`,
+          kv([['Base', `${L.base} · ${apById(L.base).name}`], ['Départ', cv ? `${esc(cv.name)} (catapulte)` : L.air ? 'En vol' : 'Sur la piste'],
+          ['Météo', WIND_PRESETS[L.wx].label], ['Temps imparti', fmtTime(CB.timeLimit) + (extra ? ` (dont ${fmtTime(extra)} de transit)` : '')], ['Appareil', AC.name]]) +
+          `<h3>Objectifs</h3><ul>${L.goals.map(g => `<li>${esc(g.label)}</li>`).join('')}${L.rtb ? `<li>Se poser et s'arrêter à ${L.base} ou sur le porte-avions</li>` : ''}</ul>
+     <p class="hint">💡 ${esc(L.tips)}</p>` +
+          (cv ? `<p class="hint">⚓ Catapulte : plein gaz (Z) maintenu 1,5 s, cabrez en bout de pont. Appontage : train sorti (la crosse sort avec), visez les brins à l'arrière du pont, vers ${pad3(runwayHdg(cv))}°. Arrêté sur le pont : réparation et réarmement.</p>` : ''),
           [['Annuler', abortCombat], ['Engager !', null, true]], 'good');
       }
       function endCombat() {
@@ -4855,9 +5555,9 @@
       function abortCombat() { endCombat(); cleanup(); CB.failed = false; toast('Mission annulée', 'info'); }
       function succeed() {
         const L = LEVELS[CB.level], acc = CB.shots ? CB.hits / CB.shots : 0;
-        const timeB = Math.max(0, Math.round((L.time - CB.t) * 3)), hpB = Math.round(CB.hp * 10), accB = Math.round(acc * 1000);
+        const timeB = Math.max(0, Math.round((CB.timeLimit - CB.t) * 3)), hpB = Math.round(CB.hp * 10), accB = Math.round(acc * 1000);
         const total = CB.score + timeB + hpB + accB;
-        const stars = 1 + (CB.hp >= 60 ? 1 : 0) + (CB.t <= L.time * 0.6 ? 1 : 0);
+        const stars = 1 + (CB.hp >= 60 ? 1 : 0) + (CB.t <= CB.timeLimit * 0.6 ? 1 : 0);
         const prev = DB.combat.best[L.id], isBest = !prev || total > prev.score;
         if (isBest) DB.combat.best[L.id] = { score: total, stars: Math.max(stars, prev ? prev.stars : 0), time: CB.t, ac: AC.name };
         else if (stars > prev.stars) prev.stars = stars;
@@ -4892,13 +5592,13 @@
           g.done = g.total > 0 && g.left === 0;
           if (!g.done) all = false;
         }
-        if (all && L.rtb && !CB.rtb) { CB.rtb = { done: false }; toast(`Objectifs détruits ! Retour à ${L.base}`, 'ok'); }
+        if (all && L.rtb && !CB.rtb) { CB.rtb = { done: false }; toast(`Objectifs détruits ! Retour à ${L.base}${CARRIERS.length ? ' ou sur le porte-avions' : ''}`, 'ok'); }
         if (CB.rtb && !CB.rtb.done && S.onGround && S.roll === 0) {
           const ap = airportAt(plane.position.x, plane.position.z);
-          if (ap && ap.id === L.base) CB.rtb.done = true;
+          if (ap && (ap.id === L.base || ap.carrier)) CB.rtb.done = true;
         }
         if (all && (!L.rtb || (CB.rtb && CB.rtb.done))) return succeed();
-        if (CB.t > L.time) return fail('Temps écoulé');
+        if (CB.t > CB.timeLimit) return fail('Temps écoulé');
         if (L.fail === 'convoy' && CB.enemies.some(e => e.kind === 'truck' && e.alive && e.pos.z < -ROAD_LEN / 2 + 60)) return fail('Le convoi a quitté la zone');
         if (L.fail === 'bombers') {
           const b = apById(L.base);
@@ -4947,9 +5647,9 @@
       function updatePanel() {
         const L = LEVELS[CB.level];
         setText('cbName', `M${CB.level + 1} · ${L.name.toUpperCase()}`);
-        setText('cbTimer', fmtTime(Math.max(0, L.time - CB.t)));
+        setText('cbTimer', fmtTime(Math.max(0, CB.timeLimit - CB.t)));
         const items = CB.goals.map(g => `<li class="${g.done ? 'done' : ''}">${g.done ? '✔' : '◻'} ${esc(g.label)} (${g.total - g.left}/${g.total})</li>`);
-        if (L.rtb) items.push(`<li class="${CB.rtb && CB.rtb.done ? 'done' : ''}">${CB.rtb ? '➜' : '◻'} Se poser à ${L.base}</li>`);
+        if (L.rtb) items.push(`<li class="${CB.rtb && CB.rtb.done ? 'done' : ''}">${CB.rtb ? '➜' : '◻'} Se poser à ${L.base} ou sur le PA</li>`);
         const html = items.join(''); if ($('cbObj').innerHTML !== html) $('cbObj').innerHTML = html;
         setText('cbHpV', Math.round(CB.hp) + ' %');
         $('cbHp').style.width = CB.hp + '%'; $('cbHp').className = CB.hp < 30 ? 'red' : CB.hp < 60 ? 'amber' : 'green';
@@ -4962,7 +5662,7 @@
         if (CB.incoming) { txt = 'MISSILE ! LEURRES (B)'; cls = 'warn'; }
         else if (CB.hp < 30) { txt = 'DÉGÂTS CRITIQUES'; cls = 'warn'; }
         else if (CB.repairing) { txt = 'RÉPARATION · RÉARMEMENT'; cls = 'info'; }
-        else if (CB.rtb && !CB.rtb.done) { txt = `RETOUR À ${L.base}`; cls = 'info'; }
+        else if (CB.rtb && !CB.rtb.done) { txt = `RETOUR À ${L.base} OU AU PORTE-AVIONS`; cls = 'info'; }
         if (bn.textContent !== txt) bn.textContent = txt;
         if (bn.className !== cls) bn.className = cls;
       }
@@ -5071,7 +5771,7 @@
           const locked = i + 1 > DB.combat.unlocked, b = DB.combat.best[L.id];
           return `<div class="lvl ${locked ? 'locked' : ''}">
       <div class="achead"><h4>${i + 1}. ${esc(L.name)}</h4><span class="stars">${b ? starStr(b.stars) : '☆☆☆'}</span></div>
-      <span class="role">Difficulté ${'◆'.repeat(L.diff)}${'◇'.repeat(5 - L.diff)} · ${WIND_PRESETS[L.wx].label} · ${fmtTime(L.time)} · ${L.base}</span>
+      <span class="role">Difficulté ${'◆'.repeat(L.diff)}${'◇'.repeat(5 - L.diff)} · ${WIND_PRESETS[L.wx].label} · ${fmtTime(L.time)} · ${L.base} · carte Vallée</span>
       <p class="brief">${esc(L.brief)}</p>
       <div class="srow"><span>Objectifs</span><b>${L.goals.map(g => esc(g.label)).join(' · ')}${L.rtb ? ' · retour base' : ''}</b></div>
       <div class="srow"><span>Meilleur score</span><b class="val">${b ? `${b.score} · ${esc(b.ac)}` : '—'}</b></div>
@@ -5080,6 +5780,7 @@
         }).join('');
         $('cbAc').innerHTML = Object.values(AIRCRAFT).filter(a => a.mil).map(a =>
           `<button class="btn ${DB.combat.ac === a.id ? 'on' : ''}" data-cbac="${a.id}"><span>${a.name}</span><span class="hint">${a.mil.missiles} mis. · blind. ×${a.mil.armor} · ${kmh(Math.sqrt(a.baseThrust * a.ab / a.drag))} km/h</span></button>`).join('');
+        $('cbStart').innerHTML = [['base', 'Base de la mission'], ['carrier', '⚓ Porte-avions']].map(([k, l]) => `<button data-cbstart="${k}" class="${DB.combat.start === k ? 'on' : ''}">${l}</button>`).join('');
         $('cbAbortBox').innerHTML = CB.active ? `<button class="btn danger" id="cbAbort">Abandonner la mission en cours</button>` : '';
       }
       function openCampaign() {
@@ -5088,6 +5789,7 @@
       }
       $('cbLevels').addEventListener('click', e => { const b = e.target.closest('[data-lvl]'); if (b && !b.disabled) startLevel(+b.dataset.lvl); });
       $('cbAc').addEventListener('click', e => { const b = e.target.closest('[data-cbac]'); if (b) { DB.combat.ac = b.dataset.cbac; persist(); renderCampaign(); } });
+      $('cbStart').addEventListener('click', e => { const b = e.target.closest('[data-cbstart]'); if (b) { DB.combat.start = b.dataset.cbstart; persist(); renderCampaign(); } });
       $('cbAbortBox').addEventListener('click', e => { if (e.target.id === 'cbAbort') { closeAllModals(); abortCombat(); } });
       document.querySelector('[data-cbclose]').addEventListener('click', closeAllModals);
       $('cbModal').addEventListener('mousedown', e => { if (e.target.id === 'cbModal') closeAllModals(); });
