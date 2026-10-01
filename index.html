@@ -3,7 +3,11 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="screen-orientation" content="landscape">
+  <meta name="x5-orientation" content="landscape">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>SKYWAY · Simulateur de vol 3D</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1033,6 +1037,78 @@
       color: var(--green)
     }
 
+    #rotateHint {
+      display: none
+    }
+
+    @media (orientation: portrait) {
+      body.touch #rotateHint {
+        display: flex;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        text-align: center;
+        background: #05080d;
+        color: var(--txt)
+      }
+
+      body.touch #rotateHint svg {
+        width: 96px;
+        height: 96px;
+        fill: none;
+        stroke: var(--cyan);
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        animation: rotphone 2s ease-in-out infinite
+      }
+
+      body.touch #rotateHint b {
+        font-size: 22px;
+        letter-spacing: .06em
+      }
+
+      body.touch #rotateHint span {
+        color: var(--mute)
+      }
+    }
+
+    @keyframes rotphone {
+      0%, 20% {
+        transform: rotate(0)
+      }
+
+      60%, 100% {
+        transform: rotate(-90deg)
+      }
+    }
+
+    #lookBadge {
+      display: none;
+      top: 110px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 4px 12px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      color: var(--amber);
+      z-index: 15;
+      pointer-events: none
+    }
+
+    body.lookback #lookBadge {
+      display: block
+    }
+
+    #gl {
+      cursor: grab
+    }
+
     .touchonly,
     #touchPad,
     #rpBar,
@@ -1368,6 +1444,14 @@
         <td>Caméra · Son · Inverser</td>
       </tr>
       <tr>
+        <td>Souris (glisser) · molette</td>
+        <td>Orbiter · zoom caméra (double-clic : recentrer)</td>
+      </tr>
+      <tr>
+        <td><kbd>O</kbd> · clic molette</td>
+        <td>Vue arrière (maintenir)</td>
+      </tr>
+      <tr>
         <td><kbd>K</kbd></td>
         <td>Enregistrer le trajet (rejeu : L)</td>
       </tr>
@@ -1466,6 +1550,7 @@
   </div>
 
   <div id="recBadge" class="glass"><i></i>REC <span class="val" id="recTime">00:00</span></div>
+  <div id="lookBadge" class="glass">◀ VUE ARRIÈRE</div>
 
   <div id="rpBar" class="glass">
     <span class="rptag">▶ REJEU</span><b id="rpName"></b>
@@ -1484,8 +1569,19 @@
     <button data-hold="e">Pal. ▶</button>
     <button data-hold=" ">Freins</button>
     <button data-tap="gear">Train</button>
+    <button data-hold="o">Vue arr.</button>
     <button data-tap="cal">Calibrer</button>
     <button data-tap="rec" class="rec">● REC</button>
+  </div>
+
+  <div id="rotateHint">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <rect x="22" y="8" width="20" height="36" rx="3" />
+      <path d="M14 50a22 22 0 0 0 30 6M44 56l-1-6M44 56l-6 0" />
+    </svg>
+    <b>Tournez votre appareil</b>
+    <span>SKYWAY se pilote en mode paysage.</span>
+    <button class="btn primary" id="rotGo">Plein écran paysage</button>
   </div>
 
   <div id="toasts"></div>
@@ -1760,6 +1856,7 @@
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.domElement.id = 'gl';
       document.body.prepend(renderer.domElement);
+      initMouseLook();
       maxAniso = renderer.capabilities.getMaxAnisotropy();
 
       scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x5a7a3a, 0.75));
@@ -2616,17 +2713,21 @@
     // ════════════════════════ Caméra & monde ════════════════════════
     function updateCamera(dt) {
       const k = snapCamera ? 1 : 1 - Math.exp(-dt * 6);
+      updateLook(dt);
       if (S.cam === 0 || S.cam === 3) {
         if (S.cam === 0) chaseCam(dt, snapCamera); else cineCam(dt);
         snapCamera = false; return;
       }
       setFov(65, dt, snapCamera);
+      const lk = lookState();
       if (S.cam === 1) {
         camera.position.copy(cockpitPos).applyQuaternion(plane.quaternion).add(plane.position);
         camera.quaternion.copy(plane.quaternion).multiply(qFlip);
+        camera.rotateY(lk.yaw); camera.rotateX(clamp(LOOK.pitch, -1, 1.2));   // tourner la tête dans le cockpit
       } else {
         vF.set(0, 0, 1).applyQuaternion(plane.quaternion);
-        tmpV.copy(sideOffset).applyAxisAngle(WORLD_UP, Math.atan2(vF.x, vF.z)).add(plane.position);
+        tmpV.copy(sideOffset).multiplyScalar(LOOK.zoom).applyAxisAngle(WORLD_UP, Math.atan2(vF.x, vF.z) + lk.yaw).add(plane.position);
+        tmpV.y += LOOK.pitch * -8 * LOOK.zoom;
         camera.position.lerp(tmpV, k); camera.position.y = Math.max(camera.position.y, 1.5);
         camera.up.set(0, 1, 0); camera.lookAt(plane.position);
       }
@@ -2952,7 +3053,7 @@
       setTimeout(() => d.classList.add('out'), 3400); setTimeout(() => d.remove(), 3900);
     }
     const anyModal = () => !!document.querySelector('.modal.open');
-    function refreshPause() { S.paused = S.userPaused || anyModal(); for (const k in keys) keys[k] = false; }
+    function refreshPause() { S.paused = S.userPaused || anyModal() || portraitBlocked(); for (const k in keys) keys[k] = false; }
     function closeAllModals() {
       document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open'));
       if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -3220,7 +3321,7 @@
       Snd.init();
       const k = keyId(e);
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k) || /^[0-9]$/.test(k)) e.preventDefault();
-      if (RP.active && !anyModal()) { if (!e.repeat) replayKey(k); return; }   // rejeu : lecteur, pas de pilotage
+      if (RP.active && !anyModal()) { if (k === 'o') keys.o = true; else if (!e.repeat) replayKey(k); return; }   // rejeu : lecteur, pas de pilotage
       if (!e.repeat) {
         switch (k) {
           case 'k': toggleRec(); return;
@@ -3247,6 +3348,48 @@
       camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
       if (mapOpen()) resizeMap();
+    }
+
+    // ════════════════════════ Regard libre façon GTA : souris / doigt, molette, vue arrière ════════════════════════
+    // Glisser (clic gauche ou droit, ou un doigt) : orbiter · molette : distance · double-clic : recentrer
+    // O ou clic molette maintenu : vue arrière. Sans action pendant 1,5 s, la caméra revient derrière l'avion.
+    const LOOK = { yaw: 0, pitch: 0, zoom: 1, drag: null, idle: 99, mid: false, back: false };
+    const wrapPi = a => Math.atan2(Math.sin(a), Math.cos(a));
+    function lookState() {
+      const yaw = LOOK.yaw + (LOOK.back ? Math.PI : 0);
+      return { yaw, free: LOOK.back ? 1 : clamp((Math.abs(LOOK.yaw) + Math.abs(LOOK.pitch)) / 0.5, 0, 1) };
+    }
+    function updateLook(dt) {
+      LOOK.idle += dt;
+      if (!LOOK.drag && LOOK.idle > 1.5) { const f = 1 - Math.exp(-dt * 2.2); LOOK.yaw -= LOOK.yaw * f; LOOK.pitch -= LOOK.pitch * f; }
+      const back = !!keys['o'] || LOOK.mid;
+      if (back !== LOOK.back) { LOOK.back = back; document.body.classList.toggle('lookback', back); }
+    }
+    function initMouseLook() {
+      const cv = renderer.domElement;
+      cv.addEventListener('contextmenu', e => e.preventDefault());
+      cv.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });   // pas de défilement auto
+      cv.addEventListener('pointerdown', e => {
+        if (e.button === 1) { LOOK.mid = true; return; }
+        if (e.button !== 0 && e.button !== 2) return;
+        LOOK.drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        try { cv.setPointerCapture(e.pointerId); } catch (err) { }
+        cv.style.cursor = 'grabbing';
+      });
+      cv.addEventListener('pointermove', e => {
+        const d = LOOK.drag; if (!d || d.id !== e.pointerId) return;
+        const k = e.pointerType === 'touch' ? 0.008 : 0.005;
+        LOOK.yaw = wrapPi(LOOK.yaw - (e.clientX - d.x) * k);
+        LOOK.pitch = clamp(LOOK.pitch - (e.clientY - d.y) * k, -1.2, 1.2);
+        d.x = e.clientX; d.y = e.clientY; LOOK.idle = 0;
+      });
+      const end = e => {
+        if (e.button === 1) LOOK.mid = false;
+        if (LOOK.drag && LOOK.drag.id === e.pointerId) { LOOK.drag = null; cv.style.cursor = ''; }
+      };
+      cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+      cv.addEventListener('dblclick', () => { LOOK.yaw = LOOK.pitch = 0; LOOK.zoom = 1; });
+      cv.addEventListener('wheel', e => { e.preventDefault(); LOOK.zoom = clamp(LOOK.zoom * (e.deltaY > 0 ? 1.1 : 1 / 1.1), 0.45, 3); }, { passive: false });
     }
 
     // ════════════════════════ Caméra cinéma : poursuite façon GTA + réalisateur automatique ════════════════════════
@@ -3279,12 +3422,21 @@
         cTmp.copy(cAim).sub(CINE.off).multiplyScalar(w * w).addScaledVector(CINE.offVel, -2 * w);
         CINE.offVel.addScaledVector(cTmp, dt); CINE.off.addScaledVector(CINE.offVel, dt);
       }
-      camFloor(camera.position.copy(plane.position).add(CINE.off));
+      // Regard libre (souris / doigt, molette) et vue arrière : appliqués après le ressort → réponse immédiate
+      cTmp.copy(CINE.off);
+      const lk = close ? { yaw: 0, free: 0 } : lookState();
+      if (!close) {
+        cTmp.applyAxisAngle(WORLD_UP, lk.yaw);
+        const hl = Math.max(1e-3, Math.hypot(cTmp.x, cTmp.z)), r = cTmp.length() * LOOK.zoom;
+        const el = clamp(Math.atan2(cTmp.y, hl) - LOOK.pitch, -0.5, 1.35);
+        cTmp.set(cTmp.x / hl * Math.cos(el) * r, Math.sin(el) * r, cTmp.z / hl * Math.cos(el) * r);
+      }
+      camFloor(camera.position.copy(plane.position).add(cTmp));
       vF.set(0, 0, 1).applyQuaternion(plane.quaternion);
-      cLook.copy(plane.position).addScaledVector(vF, 4 + v * 0.1); cLook.y += 1;
+      cLook.copy(plane.position).addScaledVector(vF, (4 + v * 0.1) * (1 - lk.free)); cLook.y += 1;
       camera.up.set(0, 1, 0); camera.lookAt(cLook);
       // roulis partiel (la caméra accompagne l'inclinaison) + vibrations à haute vitesse / fort facteur de charge
-      CINE.roll += (-S.bank * DEG * 0.28 - CINE.roll) * (snap ? 1 : 1 - Math.exp(-dt * 3));
+      CINE.roll += (-S.bank * DEG * 0.28 * (1 - lk.free) - CINE.roll) * (snap ? 1 : 1 - Math.exp(-dt * 3));
       camera.rotateZ(CINE.roll);
       const shake = Math.max(0, v / AC.vne - 0.55) * 0.012 + Math.min(0.006, Math.abs(S.g - 1) * 0.0015) + S.turbLevel * 0.002;
       if (shake > 0 && !S.onGround) { camera.rotateX(Math.sin(simT * 37) * shake); camera.rotateY(Math.sin(simT * 29 + 1.3) * shake); }
@@ -3478,16 +3630,28 @@
       if (!TILT.listening) { addEventListener('deviceorientation', onOrientation); TILT.listening = true; }
       TILT.on = true; TILT.p0 = null; $('tiltBtn').classList.add('on');
       toast('Inclinaison : tournez comme un volant · ramenez le haut vers vous pour monter', 'ok');
-      try {
-        if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
-        if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
-      } catch (e) { }
+      await goLandscape();
       setTimeout(() => { TILT.p0 = null; }, 700);   // recalibrer après la rotation éventuelle de l'écran
       setTimeout(() => { if (TILT.on && !TILT.seen) toast("Aucun capteur d'orientation (HTTPS requis)", 'warn'); }, 1500);
+    }
+    // Mobile : toujours en paysage. Plein écran + verrouillage dès le premier toucher (Android) ;
+    // sinon (iPhone, refus) un écran « Tournez votre appareil » masque l'interface et met le vol en pause.
+    const portraitMQ = matchMedia('(orientation: portrait)');
+    const portraitBlocked = () => IS_TOUCH && portraitMQ.matches;
+    async function goLandscape() {
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+      } catch (e) { }
     }
     function initTouch() {
       if (!IS_TOUCH) return;
       document.body.classList.add('touch');
+      document.addEventListener('pointerdown', goLandscape, { once: true });
+      $('rotGo').addEventListener('click', goLandscape);
+      const onOrient = () => { refreshPause(); setTimeout(onResize, 250); };
+      if (portraitMQ.addEventListener) portraitMQ.addEventListener('change', onOrient); else portraitMQ.addListener(onOrient);
+      refreshPause();
       const pad = $('touchPad');
       pad.querySelectorAll('[data-hold]').forEach(b => {
         const k = b.dataset.hold;

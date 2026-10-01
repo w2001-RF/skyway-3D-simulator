@@ -150,6 +150,7 @@ One file: `index.html`.
 - **Pitch:** 5/↓ climb, 8/↑ dive. **Roll:** 4/←, 6/→. **Rudder:** A/Q left, E/D right.
 - **Ground:** Space brakes, G gear, X reverse.
 - **Windows:** M/P map & flight plan, L records, T aircraft & weather.
+- **Camera look (GTA-style):** drag on the 3D view (left/right button or one finger) to orbit, wheel to zoom, double-click to recentre; it auto-recentres 1.5 s after release. Hold O or the middle mouse button for the rear view. Applies to Poursuite, Cockpit (head look) and Latérale; Cinéma ignores it. State: `LOOK` (`lookState`, `updateLook`, `initMouseLook`).
 - **View, sound, misc:** C camera (Poursuite/Cockpit/Latérale/Cinéma), K record trajet, N sound, I invert pitch, H help, R restart, Esc pause / close modal.
 - **Combat:** J campaign, F gun (hold), V missile, B flares, Tab next target, Shift + full throttle afterburner.
 
@@ -197,6 +198,7 @@ One file: `index.html`.
 - The Inclinaison button calls `toggleTilt` (iOS permission prompt; fullscreen and landscape lock are best-effort).
 - `onOrientation` turns beta/gamma into a screen-space up vector. Roll = steering-wheel tilt, pitch = top edge toward you = climb, neutral = calibration (`TILT.p0`).
 - Sensor events need HTTPS (or localhost).
+- Landscape only on touch devices: the first touch calls `goLandscape` (fullscreen + `screen.orientation.lock('landscape')`, Android). In portrait, `#rotateHint` covers the UI and `refreshPause` pauses the sim (`portraitBlocked()`). iPhone Safari cannot lock orientation, so the overlay is the fallback there.
 
 **Persistence:** `Store` (localStorage key `skyway.sim.v1`, in-memory fallback) and `DB`:
 ```
