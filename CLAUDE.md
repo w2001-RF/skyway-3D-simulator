@@ -178,6 +178,14 @@ One file: `index.html`.
 
 **Reverse (`X`):** ground only, aircraft with `reverse > 0`. Thrust becomes `−throttle·thrust·reverse`.
 
+**Flaps (`Y` cycles, PageDown / PageUp one notch):** `S.flapTarget` ∈ {0, 0.5, 1} (rentrés / décollage / atterrissage). `S.flapPos` follows over 4 s (`setFlaps`). Full flaps:
+- incidence +`FLAP_ALPHA` (3°): the wing stalls 3° earlier in body angle;
+- CL ×(1 + `FLAP_CL`) (0.25), so the stall speed drops by about 11% (`S.vsEff` includes it);
+- parasitic drag ×(1 + `FLAP_DRAG`·fl) (0.7, added to the gear term in `dragK`);
+- lift-off speed ×(1 − 0.08·fl).
+
+Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS ». HUD chip `#cFlap`. Visual: the flap pieces of `buildWing` sit on `hinge(…, 'flap')` pivots (`P.flaps`), rotated −`FLAP_MAX`·flapPos (38°).
+
 ## 6. Aircraft (`AIRCRAFT`, selected with `T`)
 
 | id | role | stall / vr (m/s) | thrust | drag | gear | reverse | notes |
@@ -210,8 +218,15 @@ One file: `index.html`.
   - Placement helpers: `bodyFrame().side(ctx, ±1, z, height, fn)` draws in metres, upright on either side of the fuselage. Wing and fin markings use the transforms documented in the code.
   - Content: registrations (`REGS`), cheat lines, cockpit windows, soot, roundels, serials (`SERIAL`), camouflage (`camo`, seeded by `mulberry32`, so it is deterministic).
 - Static parts are collected by `kit()` and merged per material (`BufferGeometryUtils.mergeBufferGeometries`). This gives about 30–40 meshes per aircraft, most of them in the gear legs and moving parts.
+- Cockpit view (camera 1) shows the real interior:
+  - `bodyGeo` builds single-engine and jet fuselages in three lofts, the middle one open on top under the canopy (`loftGeo` `caps: 'start'|'end'`, `vz` keeps the livery v continuous), plus a dark firewall disc facing the pilot.
+  - `cockpitShell` adds inward-facing cockpit walls, a bulkhead behind the seats, a floor above the wing root, and a roof behind the twin's windscreen.
+  - The pilot is in a `pilotKit` group (`P.pilot`), hidden in camera 1.
+  - The model sets `userData.eye`, which `applyAircraftCamera` copies into `cockpitPos`. In camera 1, `camera.near` = 0.08 (otherwise 0.5).
+  - Canopy frames are double-sided, so they are visible from inside.
+  - Why: the fuselage is single-sided, so from inside it is see-through. Any new cockpit geometry needs inward-facing faces or `DoubleSide`.
 - Lights: coloured lenses (`lens`, vertex colours) plus additive `Points` halos (`glowPts`). Nav lights are always on; `beacon` and `strobe` blink in `animatePlaneParts`.
-- Templates: `PLANE_TPL` (Map keyed by the `look` object) caches one built model per type. `createPlane` / `createJet` return `instancePlane(tpl)`, a `clone()` sharing geometry and materials, with `userData.parts` rebuilt from the `userData.part` tags (`prop, blades, disc, gear, ail, elev, rud, rud2, beacon, strobe, flame, pylon`). **Never dispose a plane's geometry or materials**: they are shared with the template and with enemies of the same type.
+- Templates: `PLANE_TPL` (Map keyed by the `look` object) caches one built model per type. `createPlane` / `createJet` return `instancePlane(tpl)`, a `clone()` sharing geometry and materials, with `userData.parts` rebuilt from the `userData.part` tags (`prop, blades, disc, gear, ail, flap, elev, rud, rud2, beacon, strobe, flame, pylon, pilot`). **Never dispose a plane's geometry or materials**: they are shared with the template and with enemies of the same type.
 - Materials: `airMats()` (shared: chrome, tyres, interior, lenses, glow), `paintMat` (livery), `trimMat(colour)` (generic panel skin tinted).
   - All are `MeshStandardMaterial`s created through `envMat`, which registers them in `ENV_MATS`.
   - `updateEnvMap()` (called by `loadMap`) renders the map's sky, haze, ground and sun into a PMREM environment and assigns it to every registered material: reflections on paint, canopies and metal.
@@ -221,6 +236,7 @@ One file: `index.html`.
 - **Throttle:** Z/W up, S down.
 - **Pitch:** 5/↓ climb, 8/↑ dive. **Roll:** 4/←, 6/→. **Rudder:** A/Q left, E/D right.
 - **Ground:** Space brakes, G gear, X reverse.
+- **Flaps:** Y cycles 0 → décollage → atterrissage; PageDown / PageUp extend / retract one notch.
 - **Windows:** M/P map & flight plan, L records, T aircraft & weather.
 - **Camera look (GTA-style):** drag on the 3D view (left/right button or one finger) to orbit, wheel to zoom, double-click to recentre; it auto-recentres 1.5 s after release. Hold O or the middle mouse button for the rear view. Applies to Poursuite, Cockpit (head look) and Latérale; Cinéma ignores it. State: `LOOK` (`lookState`, `updateLook`, `initMouseLook`).
 - **View, sound, misc:** C camera (Poursuite/Cockpit/Latérale/Cinéma), K record trajet, N sound, I invert pitch, H help, R restart, Esc pause / close modal.
@@ -370,7 +386,7 @@ DB = {
 
 **Actions** (Trystero `makeAction`):
 - `hi` = profile `{n, ac, map}`: sent to each new peer, and to everyone after `setAircraft` / `loadMap` (both wrapped).
-- `st` = state at 12 Hz: `[t, x, y, z, qx, qy, qz, qw, speed, throttle, gearPos, flags]`. Flags: 1 on the ground, 2 crashed, 4 afterburner, 8 hidden (replay or invisible).
+- `st` = state at 12 Hz: `[t, x, y, z, qx, qy, qz, qw, speed, throttle, gearPos, flags, flapPos]`. `flapPos` is optional (older clients omit it). Flags: 1 on the ground, 2 crashed, 4 afterburner, 8 hidden (replay or invisible).
 - `chat` = text (max 200 chars, at most 6 messages per 4 s per peer). Incoming text is shown with `textContent` only.
 - All incoming data is validated: finite numbers, aircraft id in `AIRCRAFT`, map id in `MAPS`, quaternion length.
 

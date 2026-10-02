@@ -1389,6 +1389,7 @@
       <div class="chips">
         <span class="chip ac" id="cAc">SIROCCO</span>
         <span class="chip" id="cGear">TRAIN</span>
+        <span class="chip" id="cFlap">VOLETS</span>
         <span class="chip" id="cRev">REVERSE</span>
         <span class="chip" id="cBrk">FREINS</span>
       </div>
@@ -1467,6 +1468,10 @@
       <tr>
         <td><kbd>G</kbd> · <kbd>X</kbd> · <kbd>Espace</kbd></td>
         <td>Train · Reverse · Freins</td>
+      </tr>
+      <tr>
+        <td><kbd>Y</kbd> · <kbd>Pg↓</kbd>/<kbd>Pg↑</kbd></td>
+        <td>Volets (0 · décollage · atterrissage)</td>
       </tr>
       <tr>
         <td><kbd>T</kbd> · <kbd>M</kbd> · <kbd>L</kbd></td>
@@ -2023,6 +2028,7 @@
       refueling: false, braking: false, terrainWarn: false, gearWarn: false, home: 'VAL', groundY: 0,
       cat: false, catHold: 0, trap: null,                 // porte-avions : catapulte, brin d'arrêt accroché
       ctl: { p: 0, r: 0, y: 0 }, gearPos: 1, gearTarget: 1, reverse: false,
+      flapPos: 0, flapTarget: 0,                          // volets : 0 rentrés, 0,5 décollage, 1 atterrissage
       wAir: 0, wave: 0, turbLevel: 0, head: 0, cross: 0, drift: 0, windSpd: 0, windFrom: 0,
       vel: new THREE.Vector3(), prevVel: new THREE.Vector3(),
       va: new THREE.Vector3(), qr: 0, stalled: false, stallWarn: false, vsEff: AC.stall   // vitesse air (vecteur), décrochage
@@ -2827,8 +2833,9 @@
     }
     // Corps fuselé : sections super-elliptiques (exposant ex), de l'arrière vers l'avant.
     // UV : u = angle (0 dessous, 0,25 flanc gauche +X, 0,5 dessus, 0,75 flanc droit), v = position en z. a0..a1 : portion d'angle (verrière, cadres).
-    function loftGeo(sec, seg = 28, ex = 2, a0 = 0, a1 = 1, caps = true) {
-      const z0 = sec[0][0], z1 = sec[sec.length - 1][0], R = seg + 1, pos = [], uv = [], idx = [], k = 2 / ex;
+    // caps : true (deux bouts), 'start', 'end' ou false ; vz = [z0, z1] : plage de v imposée (tronçon d'un fuselage plus long)
+    function loftGeo(sec, seg = 28, ex = 2, a0 = 0, a1 = 1, caps = true, vz = null) {
+      const [z0, z1] = vz || [sec[0][0], sec[sec.length - 1][0]], R = seg + 1, pos = [], uv = [], idx = [], k = 2 / ex;
       for (const [z, rx, ry, yc] of sec) for (let i = 0; i <= seg; i++) {
         const u = a0 + (a1 - a0) * i / seg, a = u * Math.PI * 2, s = Math.sin(a), c = Math.cos(a);
         pos.push(Math.sign(s) * Math.abs(s) ** k * rx, yc - Math.sign(c) * Math.abs(c) ** k * ry, z);
@@ -2837,7 +2844,7 @@
       for (let j = 0; j < sec.length - 1; j++) for (let i = 0; i < seg; i++) { const a = j * R + i, b = a + 1, c = a + R, d = c + 1; idx.push(a, b, c, b, d, c); }
       const full = a0 === 0 && a1 === 1;
       if (full && caps) [0, sec.length - 1].forEach(j => {
-        const [z, rx, , yc] = sec[j]; if (rx < 1e-3) return;
+        const [z, rx, , yc] = sec[j]; if (rx < 1e-3 || caps === (j ? 'start' : 'end')) return;
         const o = pos.length / 3; pos.push(0, yc, z); uv.push(0.5, j ? 1 : 0);
         for (let i = 0; i < seg; i++) j ? idx.push(o, j * R + i, j * R + i + 1) : idx.push(o, j * R + i + 1, j * R + i);
       });
@@ -2890,9 +2897,11 @@
       for (const sd of [-1, 1]) {
         K.add(foilGeo([st(sd, 0), st(sd, 1)], 0, W.fh, 10, camber), mat);
         K.add(foilGeo([st(sd, 0), st(sd, W.flap[0])], f1, 1, 4, camber), mat);
-        K.add(foilGeo([st(sd, W.flap[0] + 0.004), st(sd, W.flap[1])], f1, 1, 4, camber), mat);
         K.add(foilGeo([st(sd, W.ail[1] + 0.01), st(sd, 1)], f1, 1, 4, camber), mat);
         const hp = e => { const q = st(sd, e); return q.p.clone().addScaledVector(NZ, f1 * q.c).addScaledVector(AY, camber * 4 * f1 * (1 - f1) * q.c); };
+        const fa = hp(W.flap[0] + 0.004), fb = hp(W.flap[1]);                   // volet sur charnière (P.flaps)
+        const FH = hinge(root, sd > 0 ? fa : fb, sd > 0 ? fb : fa, 'x', 'flap', sd);
+        FH.add(foilGeo([st(sd, W.flap[0] + 0.004), st(sd, W.flap[1])], f1, 1, 4, camber), mat); FH.done();
         const a = hp(W.ail[0]), b = hp(W.ail[1]);
         const H = hinge(root, sd > 0 ? a : b, sd > 0 ? b : a, 'x', 'ail', sd);
         H.add(foilGeo([st(sd, W.ail[0]), st(sd, W.ail[1])], f1, 1, 5, camber), mat); H.done();
@@ -2924,6 +2933,36 @@
       const o = new THREE.Points(g, new THREE.PointsMaterial({ size, map: airMats().glow, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       if (part) { o.userData.part = part; o.visible = part !== 'strobe'; }
       return o;
+    }
+    // Habitacle vu de l'intérieur (vue cockpit) : le fuselage n'a qu'une face (vers l'extérieur), donc on ajoute une coque intérieure
+    // (faces vers l'intérieur) sur les portions d'angle « bands » entre z0 et z1, un toit éventuel (roof = [za, zb], bimoteur)
+    // et une cloison derrière les sièges (disque tourné vers l'avant, invisible de l'arrière).
+    function cockpitShell(K, A, sec, ex, z0, z1, bands, roof, floorY) {
+      const part = (za, zb) => { const s = sec.filter(q => q[0] > za && q[0] < zb); return [secAt(sec, za), ...s, secAt(sec, zb)].map(q => [q[0], q[1] * 0.96, q[2] * 0.96, q[3]]); };
+      for (const [a0, a1] of bands) K.add(flipWinding(loftGeo(part(z0, z1), 24, ex, a0, a1, false)), A.seat);
+      if (roof) K.add(flipWinding(loftGeo(part(roof[0], roof[1]), 16, ex, 0.3, 0.7, false)), A.seat);
+      const q = secAt(sec, z0); K.add(new THREE.CircleGeometry(1, 24), A.seat, 0, q[3], z0, 0, 0, 0, q[1] * 0.95, q[2] * 0.95, 1);
+      if (floorY === undefined) return;
+      // plancher : cache l'emplanture de l'aile qui traverse le fuselage sous la verrière ; largeur = section la plus étroite à cette hauteur
+      let hw = Infinity;
+      for (let i = 0; i <= 8; i++) { const [, rx, ry, yc] = secAt(sec, z0 + (z1 - z0) * i / 8), t = (floorY - yc) / ry; hw = Math.min(hw, rx * Math.sqrt(Math.max(0, 1 - t * t))); }
+      if (hw > 0.1) K.add(new THREE.BoxGeometry(hw * 1.9, 0.03, z1 - z0), A.seat, 0, floorY, (z0 + z1) / 2);
+    }
+    // Fuselage ouvert sous la verrière entre oz0 et oz1 (vue cockpit) : trois tronçons, le central sans le dessus (u ∈ [−0,33, 0,33]
+    // autour du ventre). La verrière recouvre l'ouverture vue de l'extérieur ; la livrée reste continue (v sur toute la longueur).
+    function bodyGeo(K, sec, ex, mat, oz0, oz1, wall) {
+      const vz = [sec[0][0], sec[sec.length - 1][0]], cut = (za, zb) => [secAt(sec, za), ...sec.filter(q => q[0] > za && q[0] < zb), secAt(sec, zb)];
+      K.add(loftGeo(cut(vz[0], oz0), 32, ex, 0, 1, 'start', vz), mat);
+      K.add(loftGeo(cut(oz0, oz1), 22, ex, -0.33, 0.33, false, vz), mat);
+      K.add(loftGeo(cut(oz1, vz[1]), 32, ex, 0, 1, 'end', vz), mat);
+      // cloison pare-feu au bout de l'ouverture, tournée vers le pilote : le tronçon avant n'est pas vu « de l'intérieur »
+      const q = secAt(sec, oz1); K.add(new THREE.CircleGeometry(1, 24), wall, 0, q[3], oz1, 0, Math.PI, 0, q[1] * 0.98, q[2] * 0.98, 1);
+      return q[3] + q[2];                                          // hauteur du dessus du fuselage à la cloison
+    }
+    // Pilote dans un groupe à part (P.pilot), masqué en vue cockpit pour ne pas boucher la vue
+    function pilotKit(root) {
+      const g = new THREE.Group(); g.userData.part = 'pilot'; root.add(g);
+      const K = kit(); return { add: K.add, done: () => K.build(g) };
     }
     // Jambe de train dans le repère du pivot : roue centrée à y = −h, rayon 0,35 (bas des roues à 1,6 m sous le centre avion)
     function gearLeg(K, A, h, sd, retract, paint, pant) {
@@ -3013,7 +3052,7 @@
         tire: new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.92 }),
         rubber: envMat({ color: 0x2a2d31, roughness: 0.6, metalness: 0.15 }, 0.4),
         hole: new THREE.MeshBasicMaterial({ color: 0x07080a }),
-        frame: envMat({ color: 0x33363b, roughness: 0.5, metalness: 0.4 }, 0.5),
+        frame: envMat({ color: 0x33363b, roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide }, 0.5),   // cadres de verrière (visibles du cockpit)
         seat: new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.85 }),
         suit: new THREE.MeshStandardMaterial({ color: 0x55603f, roughness: 0.9 }),
         shirt: new THREE.MeshStandardMaterial({ color: 0x6e8fb5, roughness: 0.9 }),
@@ -3220,36 +3259,49 @@
       const body = paintMat(paintCivilBody(ac, sec, ex, { cowl: twin ? null : len / 2 - 0.2, cabin, cabinMid: cabin, twin, len, z1: zn, glare: [len / 2 + 0.75 * r, zn - 0.5 * r], tailZ: finTE + finRC, wingTE: W.le(0) - W.c(0) }));
       const wingM = paintMat(paintCivilWing(ac, W)), tailM = paintMat(paintCivilTail(ac, F, Hs));
       const glass = envMat({ color: 0x1a2530, roughness: 0.04, metalness: 0.9, transparent: true, opacity: 0.55 }, 1.4);
-      K.add(loftGeo(sec, 32, ex), body);
+      const frameM = envMat({ color: L.body, roughness: 0.35, metalness: 0.12, side: THREE.DoubleSide }, 0.6);   // cadres visibles aussi du cockpit
+      if (twin) K.add(loftGeo(sec, 32, ex), body);
 
       // ── Verrière / cabine, cadres, intérieur (tableau de bord, sièges, pilote)
       if (!twin) {
         const cz0 = high ? wingZ - 0.35 * c : len * 0.12 - 1.55 * r, cz1 = high ? len / 2 - 0.25 : len * 0.12 + 1.75 * r;
+        const sill = bodyGeo(K, sec, ex, body, cz0 + (cz1 - cz0) * 0.15, cz0 + (cz1 - cz0) * 0.85, A.seat);
         const yb = r * (high ? 0.45 : 0.5), hp = high ? L.wingY - yb + 0.05 : r * 0.72, wc = r * 0.84;
         const csec = smoothSec([[0, .35, .15], [.18, .8, .75], [.45, 1, 1], [.72, .97, .9], [1, .62, .12]].map(([t, a, b]) => [cz0 + (cz1 - cz0) * t, wc * a, hp * b, yb]), 3);
         K.add(loftGeo(csec, 28, 2), glass);
         const strip = (t, a0 = 0.255, a1 = 0.745) => { const z = cz0 + (cz1 - cz0) * t, q = secAt(csec, z); return loftGeo([[z - 0.03, q[1] * 1.02, q[2] * 1.02, yb], [z + 0.03, q[1] * 1.02, q[2] * 1.02, yb]], 20, 2, a0, a1); };
-        K.add(strip(0.74), trimB); K.add(strip(0.3), trimB);
-        K.add(loftGeo(csec.filter(q => q[0] >= cz0 + (cz1 - cz0) * 0.74).map(q => [q[0], q[1] * 1.02, q[2] * 1.02, yb]), 2, 2, 0.494, 0.506), trimB);
+        K.add(strip(0.74), frameM); K.add(strip(0.3), frameM);
+        K.add(loftGeo(csec.filter(q => q[0] >= cz0 + (cz1 - cz0) * 0.74).map(q => [q[0], q[1] * 1.02, q[2] * 1.02, yb]), 2, 2, 0.494, 0.506), frameM);
         const zp = cz0 + (cz1 - cz0) * 0.42, px = ac.id === 'faucon' ? 0 : r * 0.3;
         K.add(rbox(wc * 1.5, 0.24, 0.08, 0.03), A.panel, 0, yb + 0.08, cz0 + (cz1 - cz0) * 0.74, -0.35);
         for (const x of ac.id === 'faucon' ? [0] : [px, -px]) {
           K.add(rbox(0.46, 0.72, 0.1, 0.04), A.seat, x, yb + 0.12, zp - 0.36, -0.18);
           K.add(rbox(0.46, 0.12, 0.45, 0.04), A.seat, x, yb - 0.22, zp - 0.12);
         }
-        K.add(rbox(0.4, 0.42, 0.24, 0.08), A.shirt, px, yb + 0.02, zp - 0.18);
-        K.add(new THREE.SphereGeometry(0.115, 14, 10), A.skinTone, px, yb + 0.35, zp - 0.15);
-        K.add(new THREE.SphereGeometry(0.125, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), A.helmetDark, px, yb + 0.37, zp - 0.17);
-      } else {   // pare-brise du bimoteur : bande vitrée sur le nez, montants, deux pilotes
+        cockpitShell(K, A, sec, ex, cz0, cz1, [[-0.3, 0.3]], null, yb - 0.3);
+        const pk = pilotKit(root);
+        pk.add(rbox(0.4, 0.42, 0.24, 0.08), A.shirt, px, yb + 0.02, zp - 0.18);
+        pk.add(new THREE.SphereGeometry(0.115, 14, 10), A.skinTone, px, yb + 0.35, zp - 0.15);
+        pk.add(new THREE.SphereGeometry(0.125, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), A.helmetDark, px, yb + 0.37, zp - 0.17);
+        pk.done();
+        const ze = zp - 0.06;
+        root.userData.eye = { x: px, y: Math.min(yb + hp - 0.1, Math.max(yb + 0.42, sill + 0.07)), z: ze };   // au-dessus du capot
+      } else {   // pare-brise du bimoteur : bande vitrée sur le nez, montants, deux pilotes (commandant à gauche, +X)
         const ws = sec.filter(q => q[0] >= len / 2 - 0.35 * r && q[0] <= len / 2 + 0.75 * r).map(q => [q[0], q[1] * 1.012, q[2] * 1.012, q[3]]);
         K.add(loftGeo(ws, 24, ex, 0.31, 0.69), glass);
-        for (const u of [0.31, 0.37, 0.5, 0.63, 0.69]) K.add(loftGeo(ws.map(q => [q[0], q[1] * 1.006, q[2] * 1.006, q[3]]), 1, ex, u - 0.006, u + 0.006), trimB);
+        for (const u of [0.31, 0.37, 0.5, 0.63, 0.69]) K.add(loftGeo(ws.map(q => [q[0], q[1] * 1.006, q[2] * 1.006, q[3]]), 1, ex, u - 0.006, u + 0.006), frameM);
+        const pk = pilotKit(root);
         for (const x of [r * 0.38, -r * 0.38]) {
-          K.add(rbox(0.4, 0.42, 0.24, 0.08), A.shirt, x, r * 0.1, len / 2 - 0.05 * r);
-          K.add(new THREE.SphereGeometry(0.115, 14, 10), A.skinTone, x, r * 0.45, len / 2);
-          K.add(new THREE.SphereGeometry(0.125, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), A.helmetDark, x, r * 0.47, len / 2 - 0.02 * r);
+          const k2 = x > 0 ? pk : K;
+          k2.add(rbox(0.4, 0.42, 0.24, 0.08), A.shirt, x, r * 0.1, len / 2 - 0.05 * r);
+          k2.add(new THREE.SphereGeometry(0.115, 14, 10), A.skinTone, x, r * 0.45, len / 2);
+          k2.add(new THREE.SphereGeometry(0.125, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), A.helmetDark, x, r * 0.47, len / 2 - 0.02 * r);
+          K.add(rbox(0.46, 0.7, 0.1, 0.04), A.seat, x, r * 0.15, len / 2 - 0.3 * r, -0.15);
         }
+        pk.done();
         K.add(rbox(r * 1.3, 0.24, 0.08, 0.03), A.panel, 0, r * 0.25, len / 2 + 0.38 * r, -0.4);
+        cockpitShell(K, A, sec, ex, len / 2 - 1.1 * r, len / 2 + 0.75 * r, [[-0.31, 0.31]], [len / 2 - 1.1 * r, len / 2 - 0.35 * r]);
+        root.userData.eye = { x: r * 0.38, y: r * 0.5, z: len / 2 + 0.06 };
       }
 
       // ── Aile, haubans, tube de Pitot, phare
@@ -3334,13 +3386,14 @@
     }
     // Modèles mis en cache par type (look) : chaque appel renvoie une copie qui partage géométries et matériaux
     const PLANE_TPL = new Map();
-    const PART_LIST = { prop: 'props', blades: 'blades', disc: 'discs', gear: 'gear', strobe: 'strobes', flame: 'flames', pylon: 'pylons' };
+    const PART_LIST = { prop: 'props', blades: 'blades', disc: 'discs', gear: 'gear', strobe: 'strobes', flame: 'flames', pylon: 'pylons', flap: 'flaps' };
+    const FLAP_MAX = 38 * DEG;                                   // braquage des volets pleins (visuel)
     function instancePlane(t) {
-      const g = t.clone(), P = { props: [], blades: [], discs: [], gear: [], ail: [], strobes: [], flames: [], pylons: [], rud2: null };
+      const g = t.clone(), P = { props: [], blades: [], discs: [], gear: [], ail: [], flaps: [], strobes: [], flames: [], pylons: [], rud2: null };
       g.traverse(o => {
         const p = o.userData.part; if (!p) return;
         if (p === 'ail') P.ail.push({ piv: o, side: o.userData.side });
-        else if (p === 'rud2' || p === 'elev' || p === 'rud' || p === 'beacon') P[p] = o;
+        else if (p === 'rud2' || p === 'elev' || p === 'rud' || p === 'beacon' || p === 'pilot') P[p] = o;
         else if (PART_LIST[p]) P[PART_LIST[p]].push(o);
       });
       g.userData.parts = P; return g;
@@ -3352,7 +3405,9 @@
     function applyAircraftCamera() {
       const L = AC.look;
       camOffset.set(0, 3.2 + L.span * 0.09, -(L.len * 1.1 + 9));
-      cockpitPos.set(0, L.twin ? L.r * 0.7 : L.r * 1.35 + 0.35, L.twin ? L.len / 2 + L.r * 0.3 : L.len * 0.12);
+      const e = plane.userData.eye;                                // œil du pilote, dans la verrière (donné par le modèle)
+      if (e) cockpitPos.set(e.x, e.y, e.z);
+      else cockpitPos.set(0, L.twin ? L.r * 0.7 : L.r * 1.35 + 0.35, L.twin ? L.len / 2 + L.r * 0.3 : L.len * 0.12);
       sideOffset.set(10 + L.span * 0.6, 3, -2);
     }
     function animatePlaneParts(dt, t) {
@@ -3361,6 +3416,7 @@
       P.elev.rotation.x = 0.4 * S.ctl.p;
       P.rud.rotation.y = -0.45 * S.ctl.y;
       P.gear.forEach(p => { p.rotation.x = -(1 - S.gearPos) * Math.PI / 2; p.visible = S.gearPos > 0.04; });
+      P.flaps.forEach(f => f.rotation.x = -FLAP_MAX * S.flapPos);   // bord de fuite vers le bas
       const w = S.crashed ? 0 : S.throttle * 45 + S.speed * 0.3;
       P.props.forEach((p, i) => p.rotation.z += (i % 2 ? -w : w) * dt);
       // Hélice rapide : les pales laissent place au disque flou
@@ -3443,7 +3499,7 @@
       Object.assign(S, {
         throttle: 0, speed: 0, roll: 0, vy: 0, heading: ap.h, onGround: true, crashed: false, fuel: 100, rpm: 0, g: 1, aoa: 0, accel: 0,
         airborne: false, flight: null, lastTouch: null, lastLat: 0, refueling: false, terrainWarn: false, gearWarn: false,
-        gearPos: 1, gearTarget: 1, reverse: false, wAir: 0, groundY: ap.y, cat: false, catHold: 0, trap: null
+        gearPos: 1, gearTarget: 1, flapPos: 0, flapTarget: 0, reverse: false, wAir: 0, groundY: ap.y, cat: false, catHold: 0, trap: null
       });
       S.ctl.p = S.ctl.r = S.ctl.y = 0; turbV = turbR = turbP = 0;
       S.vel.set(0, 0, 0); S.prevVel.set(0, 0, 0); S.va.set(0, 0, 0);
@@ -3479,6 +3535,15 @@
       S.gearTarget = S.gearTarget ? 0 : 1;
       Snd.beep(S.gearTarget ? 520 : 400, 0.08);
       toast(S.gearTarget ? 'Train : sortie' : 'Train : rentrée', 'info');
+    }
+    // Volets : trois crans (rentrés, décollage, atterrissage). Y fait défiler, Pg.Suiv / Pg.Préc descendent / remontent d'un cran.
+    const FLAP_NAMES = ['RENTRÉS', 'DÉCOLLAGE', 'ATTERRISSAGE'];
+    const vfeOf = a => a.vfe || a.stall * 1.75;                  // vitesse maximale volets sortis
+    function setFlaps(step) {
+      const n = clamp(Math.round(step), 0, 2);
+      if (n === Math.round(S.flapTarget * 2)) return;
+      S.flapTarget = n / 2; Snd.beep(n ? 470 : 380, 0.06);
+      toast(`Volets : ${FLAP_NAMES[n].toLowerCase()}`, n && !S.onGround && S.speed > vfeOf(AC) ? 'caution' : 'info');
     }
     function toggleReverse() {
       if (!AC.reverse) { toast(`${AC.name} : pas d'inverseur de poussée`, 'info'); return; }
@@ -3537,6 +3602,7 @@
     const ALPHA_STALL = 16 * DEG;    // incidence de décrochage de l'aile
     const WING_INC = 4 * DEG;        // calage de l'aile : portance à assiette nulle
     const K_IND = 0.08, CD_PLATE = 0.8, SIDE_K = 0.5;   // traînée induite, plaque plane, force latérale
+    const FLAP_ALPHA = 3 * DEG, FLAP_CL = 0.25, FLAP_DRAG = 0.7;   // volets pleins : décalage d'incidence, gain de CL max, traînée
     const airDensityRatio = h => Math.exp(-Math.max(0, h) / RHO_H);
     // CL / CLmax : linéaire jusqu'au décrochage, chute de 25 % puis décroissance jusqu'à ~50°
     function liftCoef(a) {
@@ -3563,6 +3629,7 @@
       S.throttle = clamp(S.throttle, 0, 1);
       S.braking = S.onGround && !!keys[' '];
       S.gearPos += clamp(S.gearTarget - S.gearPos, -dt / 3, dt / 3);
+      S.flapPos += clamp(S.flapTarget - S.flapPos, -dt / 4, dt / 4);   // 4 s de course complète
 
       S.burn = S.fuel > 0 ? AC.fuelBase + AC.fuelThr * S.throttle : 0;
       S.fuel = Math.max(0, S.fuel - S.burn * dt);
@@ -3575,7 +3642,8 @@
       windPrev.copy(windNow); windAt(agl0, simT, windNow);
       updateAirMass(dt, plane.position.x, plane.position.y, plane.position.z, agl0);
 
-      const dragK = AC.drag * (1 + AC.gearDrag * S.gearPos);
+      const fl = S.flapPos;                                    // volets : +3° d'incidence, CL max × 1,25, traînée
+      const dragK = AC.drag * (1 + AC.gearDrag * S.gearPos + FLAP_DRAG * fl);
       const thrust = S.fuel > 0 ? S.throttle * AC.thrust * (S.reverse ? -AC.reverse : 1) : 0;
       const prevSpeed = S.onGround ? S.roll : S.speed;
 
@@ -3621,7 +3689,7 @@
           if (sfc.water) return crash(sfc.lake ? "L'avion a roulé dans le lac" : "L'avion est tombé à l'eau");
           if (!sfc.deck && sfc.slope > 0.35) return crash('Sortie de piste dans le relief');
           plane.position.y = sfc.y + GEAR; S.groundY = sfc.y;
-          if (pitchIn > 0 && S.speed >= AC.vr && !S.reverse) {
+          if (pitchIn > 0 && S.speed >= AC.vr * (1 - 0.08 * fl) && !S.reverse) {
             S.onGround = false; S.vy = 1.5; plane.rotateX(-0.08);
             S.va.set(fx * S.roll - windNow.x, S.vy, fz * S.roll - windNow.z);   // vitesse air = vitesse sol − vent
             onTakeoff(ship);
@@ -3656,9 +3724,9 @@
         vDir.copy(S.va).divideScalar(V);
         const qr = sigma * (V / AC.stall) ** 2;             // q / q au décrochage, niveau de la mer
         const uF = S.va.dot(vF), uU = S.va.dot(vU), uR = S.va.dot(vR);
-        const alpha = Math.atan2(-uU, uF) + WING_INC;       // incidence de l'aile
+        const alpha = Math.atan2(-uU, uF) + WING_INC + FLAP_ALPHA * fl;   // incidence de l'aile (volets : cambrure)
         const beta = Math.atan2(uR, Math.abs(uF) + 1e-3);    // dérapage (+ = vent relatif vers la droite)
-        const cl = liftCoef(alpha);
+        const cl = liftCoef(alpha) * (1 + FLAP_CL * fl);
         const lift = clamp(9.8 * qr * cl, -AC.gMax * 4.9, AC.gMax * 9.8);
         vLift.copy(vU).addScaledVector(vDir, -vU.dot(vDir));
         const nl = vLift.length();
@@ -3692,7 +3760,7 @@
         vF.set(0, 0, 1).applyQuaternion(plane.quaternion);
         S.vy = S.va.y - vF.y * S.speed;                      // composante verticale hors axe du nez
         S.aoa = alpha / DEG; S.qr = qr;
-        S.vsEff = AC.stall / Math.sqrt(sigma);
+        S.vsEff = AC.stall / Math.sqrt(sigma * (1 + FLAP_CL * fl));
         S.stallWarn = alpha > ALPHA_STALL - 3 * DEG || qr < 1.05;
         // Déplacement = vitesse air + vent + mouvement vertical de la masse d'air
         plane.position.x += (S.va.x + windNow.x) * dt;
@@ -3959,6 +4027,10 @@
     function updateCamera(dt) {
       const k = snapCamera ? 1 : 1 - Math.exp(-dt * 6);
       updateLook(dt);
+      const nr = S.cam === 1 ? 0.08 : 0.5;                          // vue cockpit : tableau de bord à quelques dizaines de cm
+      if (camera.near !== nr) { camera.near = nr; camera.updateProjectionMatrix(); }
+      const pil = plane.userData.parts && plane.userData.parts.pilot;
+      if (pil) pil.visible = S.cam !== 1;                          // vue cockpit : on ne voit pas sa propre tête
       if (S.cam === 0 || S.cam === 3) {
         if (S.cam === 0) chaseCam(dt, snapCamera); else cineCam(dt);
         snapCamera = false; return;
@@ -4245,6 +4317,8 @@
       else if (S.gearPos > 0.98) setChip('cGear', 'TRAIN ▼ SORTI', 'on');
       else if (S.gearPos < 0.02) setChip('cGear', 'TRAIN ▲ RENTRÉ', '');
       else setChip('cGear', 'TRAIN ⇅ TRANSIT', 'mid');
+      const fn = Math.round(S.flapTarget * 2);
+      setChip('cFlap', Math.abs(S.flapPos - S.flapTarget) > 0.01 ? 'VOLETS ⇅' : `VOLETS ${fn ? fn + ' · ' + (fn > 1 ? 'ATT' : 'DÉC') : '0'}`, S.flapPos > 0.01 ? (Math.abs(S.flapPos - S.flapTarget) > 0.01 ? 'mid' : 'on') : '');
       setChip('cRev', AC.reverse ? 'REVERSE' : 'SANS REVERSE', S.reverse ? 'hot' : '');
       setChip('cBrk', 'FREINS', S.braking ? 'mid' : '');
 
@@ -4294,6 +4368,7 @@
           if (S.gearWarn) A.push(['TRAIN NON SORTI', 'warn']);
           if (S.speed > AC.vne) A.push(['SURVITESSE', 'warn']);
           if (AC.retract && S.gearPos > 0.02 && S.speed > AC.vle) A.push(['VITESSE TRAIN', 'caution']);
+          if (S.flapPos > 0.02 && S.speed > vfeOf(AC)) A.push(['VITESSE VOLETS', 'caution']);
           if (Math.abs(S.bank) > 60) A.push(['INCLINAISON', 'caution']);
           if (S.turbLevel > 0.8) A.push(['TURBULENCES', 'caution']);
           if (Math.abs(plane.position.x) > WORLD || Math.abs(plane.position.z) > WORLD) A.push(['HORS ZONE · DEMI-TOUR', 'caution']);
@@ -4635,6 +4710,8 @@
         if (!anyModal() && !S.crashed) {
           if (k === 'g') { toggleGear(); return; }
           if (k === 'x') { toggleReverse(); return; }
+          if (k === 'y') { setFlaps((Math.round(S.flapTarget * 2) + 1) % 3); return; }
+          if (k === 'pagedown' || k === 'pageup') { e.preventDefault(); setFlaps(S.flapTarget * 2 + (k === 'pagedown' ? 1 : -1)); return; }
         }
       }
       if (anyModal()) return;
@@ -5466,7 +5543,7 @@
         const body = paintMat(paintJetBody(ac, hostile, sec, ex, { len, cz0, cz1, seed }), true);
         const wingM = paintMat(paintJetWing(ac, hostile, W, seed + 1), true), tailM = paintMat(paintJetTail(ac, hostile, F, seed + 2), true);
         const trimB = trimMat(L.body, true), trimW = trimMat(L.wing, true);
-        K.add(loftGeo(sec, 32, ex), body);
+        bodyGeo(K, sec, ex, body, cz0 + (cz1 - cz0) * 0.15, cz0 + (cz1 - cz0) * 0.85, A.seat);   // ouvert sous la verrière (vue cockpit)
 
         // Entrées d'air latérales (lèvre, conduit sombre, fond) ou réacteurs en nacelles (Titan)
         if (!L.pods) for (const sd of [-1, 1]) {
@@ -5507,9 +5584,13 @@
         K.add(loftGeo([[zw - 0.035, qw[1], qw[2], yb], [zw + 0.035, qw[1], qw[2], yb]], 20, 2, 0.255, 0.745), A.frame);
         const zp = cz0 + (cz1 - cz0) * 0.45;
         K.add(rbox(0.5, 0.95, 0.32, 0.05), A.seat, 0, yb + 0.05, zp - 0.42, -0.15);
-        K.add(rbox(0.42, 0.45, 0.28, 0.08), A.suit, 0, yb, zp - 0.16);
-        K.add(new THREE.SphereGeometry(0.14, 16, 12), hostile ? A.helmetDark : A.helmet, 0, yb + 0.33, zp - 0.12);
-        K.add(new THREE.SphereGeometry(0.146, 16, 8, H90 - 0.9, 1.8, 1.0, 0.75), glass, 0, yb + 0.33, zp - 0.12);
+        cockpitShell(K, A, sec, ex, cz0 + 0.2, cz1, [[-0.3, 0.3]], null, yb - 0.32);
+        const pk = pilotKit(root);
+        pk.add(rbox(0.42, 0.45, 0.28, 0.08), A.suit, 0, yb, zp - 0.16);
+        pk.add(new THREE.SphereGeometry(0.14, 16, 12), hostile ? A.helmetDark : A.helmet, 0, yb + 0.33, zp - 0.12);
+        pk.add(new THREE.SphereGeometry(0.146, 16, 8, H90 - 0.9, 1.8, 1.0, 0.75), glass, 0, yb + 0.33, zp - 0.12);
+        pk.done();
+        root.userData.eye = { x: 0, y: Math.min(yb + hp - 0.1, yb + 0.38), z: zp - 0.05 };
         K.add(rbox(wc * 1.5, 0.16, 0.5, 0.04), A.frame, 0, yb + 0.02, cz0 + (cz1 - cz0) * 0.72);
         K.add(new THREE.PlaneGeometry(0.2, 0.16), glass, 0, yb + 0.2, cz0 + (cz1 - cz0) * 0.68, -0.3);
 
@@ -5581,7 +5662,7 @@
       createPlane = function (ac) { return ac.jet ? createJet(ac, false) : _createPlane(ac); };
 
       const _applyCam = applyAircraftCamera;
-      applyAircraftCamera = function () { _applyCam(); if (AC.jet) cockpitPos.set(0, AC.look.r * 0.75 + 0.55, AC.look.len * 0.24); };
+      applyAircraftCamera = function () { _applyCam(); if (AC.jet && !plane.userData.eye) cockpitPos.set(0, AC.look.r * 0.75 + 0.55, AC.look.len * 0.24); };
 
       const _updatePlane = updatePlane;
       updatePlane = function (dt) {
@@ -6847,7 +6928,7 @@
         OL.sendT = now;
         const p = plane.position, q = plane.quaternion;
         const f = (S.onGround ? 1 : 0) | (S.crashed ? 2 : 0) | (S.ab ? 4 : 0) | (RP.active || !plane.visible ? 8 : 0);
-        OL.act.st.send([Math.round(now) / 1000, R2(p.x), R2(p.y), R2(p.z), R4(q.x), R4(q.y), R4(q.z), R4(q.w), R2(S.speed), R2(S.throttle), R2(S.gearPos), f]);
+        OL.act.st.send([Math.round(now) / 1000, R2(p.x), R2(p.y), R2(p.z), R4(q.x), R4(q.y), R4(q.z), R4(q.w), R2(S.speed), R2(S.throttle), R2(S.gearPos), f, R2(S.flapPos)]);
       }
       function onState(id, d) {
         const p = getPeer(id); if (!p || !Array.isArray(d) || d.length < 12 || !d.slice(0, 11).every(fin)) return;
@@ -6855,7 +6936,7 @@
         // horloge : plus petit écart réception − émission (latence + décalage), qui dérive lentement vers le haut
         p.off = p.off === null ? now - ts : Math.min(p.off + 0.002, now - ts);
         const q = new THREE.Quaternion(d[4], d[5], d[6], d[7]); if (q.lengthSq() < 0.5) return; q.normalize();
-        const s = { t: ts, x: d[1], y: d[2], z: d[3], q, spd: d[8], thr: clamp(d[9], 0, 1), gear: clamp(d[10], 0, 1), f: d[11] | 0 };
+        const s = { t: ts, x: d[1], y: d[2], z: d[3], q, spd: d[8], thr: clamp(d[9], 0, 1), gear: clamp(d[10], 0, 1), f: d[11] | 0, flap: fin(d[12]) ? clamp(d[12], 0, 1) : 0 };
         const b = p.buf; if (b.length && s.t <= b[b.length - 1].t) return;
         b.push(s); if (b.length > 30) b.shift();
         p.last = now;
@@ -6882,7 +6963,7 @@
             cur.x = a.x + (pr ? (a.x - pr.x) * kk : 0); cur.y = a.y + (pr ? (a.y - pr.y) * kk : 0); cur.z = a.z + (pr ? (a.z - pr.z) * kk : 0);
             _qa.copy(a.q);
           }
-          Object.assign(cur, { thr: a.thr, spd: a.spd, gear: (c || a).gear, f: (c || a).f });
+          Object.assign(cur, { thr: a.thr, spd: a.spd, gear: (c || a).gear, f: (c || a).f, flap: (c || a).flap });
           p.mesh.position.set(cur.x, cur.y, cur.z); p.mesh.quaternion.copy(_qa);
           const fwd = _kv.set(0, 0, 1).applyQuaternion(_qa); cur.hdg = compassOf(fwd.x, fwd.z);
           animRemote(p, dt, now + i++);
@@ -6894,6 +6975,7 @@
       function animRemote(p, dt, t) {
         const P = p.mesh.userData.parts, s = p.cur, w = s.f & 2 ? 0 : s.thr * 45 + s.spd * 0.3, ab = !!(s.f & 4);
         P.gear.forEach(g => { g.rotation.x = -(1 - s.gear) * Math.PI / 2; g.visible = s.gear > 0.04; });
+        P.flaps.forEach(f => f.rotation.x = -FLAP_MAX * s.flap);
         P.props.forEach((q, i) => q.rotation.z += (i % 2 ? -w : w) * dt);
         P.blades.forEach(b => b.visible = w < 29);
         P.flames.forEach(f => { f.visible = s.thr > 0.02 && !(s.f & 2); const k = ab ? 1.25 : 1; f.scale.set(k, 0.25 + s.thr * 0.75 + (ab ? 1.1 : 0), k); });
