@@ -100,7 +100,7 @@ One file: `index.html`.
   - Each tile's cloned geometry gets a hand-set `boundingSphere`, so camera and shadow culling work.
   - Leaf colors come from `setColorAt`.
   - Count = `GFX.treeDen` per km² × `MAP.trees`, capped by `GFX.treeMax`, accepted with probability `FO^1.6`.
-- Airports: `buildAirport(ap)` (group at `ap.y`, windsock at `ap.y`). Desert maps use `MAT.clearingSand`. Carriers use `buildCarrier(ap)`.
+- Airports: `buildAirport(ap)` (group at `ap.y`, windsock at `ap.y`, a PAPI at each end). Desert maps use `MAT.clearingSand`. Carriers use `buildCarrier(ap)` (with a meatball).
 - `buildMapImage`: 720 px map image (relief colors × hillshade + contour lines every 100 m, darker every 500 m) and `PEAKS` (local maxima ≥ 150 m, at least 1.8 km apart).
 - Everything goes in `worldGroup`. `disposeWorld` frees the per-map geometry, materials and textures, but keeps `MAT`, `GEO`, `TEX` and `numberMats`.
 - Haze color (`MAP.haze`) drives fog, background and sky horizon.
@@ -111,6 +111,7 @@ One file: `index.html`.
 - Deck 300 × 64 m at `DECK_Y = 16`. Island on the starboard side (−X), box `CV.ISL`.
 - Catapult track from `CV.CAT0` (+10) to `CV.CAT1` (+146). Civil aircraft start at `CV.START` (−132). Wires at `CV.WIRES` (−100, −88, −76, −64).
 - Deck texture: 256 × 1024 canvas (top = stern, left = starboard).
+- Touchdown aim point `CV.TDZ` (−82, between the 2nd and 3rd wires): the ICLS glide path (3.5°) and the meatball refer to it. Meatball on a port sponson (+X) at `CV.MB_Z` (−78), see §8 « Landing aids ».
 
 ## 5. Flight model (`updatePlane(dt)`, vector aerodynamics)
 **Ground**
@@ -225,6 +226,12 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
   - The model sets `userData.eye`, which `applyAircraftCamera` copies into `cockpitPos`. In camera 1, `camera.near` = 0.08 (otherwise 0.5).
   - Canopy frames are double-sided, so they are visible from inside.
   - Why: the fuselage is single-sided, so from inside it is see-through. Any new cockpit geometry needs inward-facing faces or `DoubleSide`.
+  - Over-nose view (needed to see the runway and PAPI on a 3° approach): the eye sits high in the canopy and the cowling slopes down in front of the windscreen.
+    - Low wing: canopy `hp` = 0.92 r, eye at the canopy top − 0.13.
+    - High wing: the eye stays just under the wing, so the nose sections drop further (`hw` factor in the section list).
+    - Jets: `hp` = 0.8 r, eye at the canopy top − 0.14.
+    - Seat and pilot are raised by `dy` to match the eye. The Faucon (single seat, eye on the centreline) has no centre canopy bar.
+    - Measured by raycasting from the eye against the opaque parts: about 8° (Alouette, Faucon), 9° (Sirocco), 9–10° (jets), more than 25° (Atlas glazed nose). Re-check if you change the nose sections, `hp` or the panel height.
 - Lights: coloured lenses (`lens`, vertex colours) plus additive `Points` halos (`glowPts`). Nav lights are always on; `beacon` and `strobe` blink in `animatePlaneParts`.
 - Templates: `PLANE_TPL` (Map keyed by the `look` object) caches one built model per type. `createPlane` / `createJet` return `instancePlane(tpl)`, a `clone()` sharing geometry and materials, with `userData.parts` rebuilt from the `userData.part` tags (`prop, blades, disc, gear, ail, flap, elev, rud, rud2, beacon, strobe, flame, pylon, pilot`). **Never dispose a plane's geometry or materials**: they are shared with the template and with enemies of the same type.
 - Materials: `airMats()` (shared: chrome, tyres, interior, lenses, glow), `paintMat` (livery), `trimMat(colour)` (generic panel skin tinted).
@@ -268,11 +275,25 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - `toggleGear`, `toggleReverse`, `onTakeoff`, `onTouchdown`, `finishLanding`, `crash`.
 
 **Navigation and HUD**
-- `computeAttitude`, `computeNav` (BRG, DIST, ETA, DTK, XTK, 3° glide path, remaining distance).
+- `computeAttitude`, `computeNav` (BRG, DIST, ETA, DTK, XTK, ILS, remaining distance). The target airport object is `NAV.target.ap`.
 - `drawHorizon`, `drawStick`, `drawRadar(t)` (heading-up, 5 ranges up to 8 km). `drawRadarTerrain` draws a 64² image sampled every frame: red = above the plane, orange = within 150 m below, blue = water.
-- `drawMap`: `MAPIMG` relief, darkened area outside `WORLD`, peaks, carrier ⚓, zoom/pan, click to add a waypoint. `NAV.gpAlt` targets the destination elevation.
+- `drawMap`: `MAPIMG` relief, darkened area outside `WORLD`, peaks, carrier ⚓, zoom/pan, click to add a waypoint.
 - `fillAirportSelects` rebuilds the plan selects and the map picker (`#mapPick`).
 - `updateHUD` runs at ~15 Hz; alerts are deduplicated with `lastAlerts`.
+
+**Landing aids**
+- **ILS** (`ILS`, `updateILS(ap)`, called by `computeNav` for the target airport: mission destination, or nearest airport in free flight).
+  - Runway end: the side the plane is on when more than 1 km beyond an end, otherwise the current heading; it is then kept while the plane stays near the runway. `ILS.e` = threshold side (−1 ⇒ landing toward local +Z).
+  - Aim point `PAPI_IN` (150 m) after the threshold, 3°. Carriers: always toward the bow, aim point `CV.TDZ`, 3.5° (« ICLS PA1 »).
+  - `ILS.loc` / `ILS.gs` (radians): > 0 = right of the centreline / above the path. The localizer antenna is 300 m beyond the far end. Full scale (2 dots) `LOC_FS` 2.5° / `GS_FS` 0.7°.
+  - Valid (`ILS.on`) when airborne, before the aim point, within 18 km and within ±35° of the centreline.
+  - `NAV.gpAlt` = the path altitude within 6 km. Nav bar: `#nGpL` shows « ILS 36 · 3° », `#nGp` the path altitude and deviation.
+  - `drawHorizon` draws magenta diamonds: localizer at the bottom, glideslope on the right, hollow when off scale, plus the ident.
+- **Visual aids** (`AIDS`, emptied by `loadMap`): `updateLandingAids()` runs every frame after `updateCamera` and works from the **camera** position (what the player sees).
+  - Each aid is visible only from the approach side, within 15 km and about ±30°.
+  - Points use `MAT.aidPts` / `MAT.aidBall` (`PointsMaterial`, `sizeAttenuation: false`, 8 / 13 px, normal blending so red stays red on bright ground). Housings use `GEO.aidBox`.
+  - **PAPI:** 4 lights left of each aim point (16–43 m from the edge), set to 3.5 / 3.17 / 2.83 / 2.5° from the runway outward. On the 3° path: 2 red (inner) and 2 white.
+  - **Meatball:** green datum bars plus an amber ball, ×2 real size so it is readable at about 1 km. The ball moves ±4 m for ±0.75° from the 3.5° path and turns red more than 0.5° low.
 
 **UI**
 - `openModal`, `closeAllModals` (pauses the sim and blurs the focused element), `showDialog(title, html, [[label, fn, primary]], cls)`, `toast(msg, type)`.
@@ -439,4 +460,4 @@ DB = {
 2. ~~Fixed-timestep physics loop~~ (done, 120 Hz).
 3. Add unit tests for the coordinate helpers (`compassOf`, `toLocal`/`toWorld`), wind, landing grading and the scoring formula.
 4. ~~Gamepad controls~~ (done). Pool the bullet/puff meshes.
-5. Moving carrier (wind over deck), aircraft parked on the deck, landing aids (meatball).
+5. Moving carrier (wind over deck), aircraft parked on the deck. ~~Landing aids~~ (done: PAPI, meatball, ILS needles).
