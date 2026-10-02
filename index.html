@@ -1636,6 +1636,9 @@
   <div id="loading">Génération de la carte…</div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Exemples officiels three r128 (même version) : fusion des pièces d'avion, boîtes arrondies -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/RoundedBoxGeometry.js"></script>
   <script>
     'use strict';
     // ════════════════════════ Configuration ════════════════════════
@@ -2604,6 +2607,7 @@
       if (MAP.road) { truckState.dir = 1; truck.position.set(ROAD_X - 3.5, 0, -RUNWAY_LEN / 2 + 60); }
       buildMapImage();
       scene.fog.color.setHex(MAP.haze); scene.background.setHex(MAP.haze); sky.material.uniforms.horizon.value.setHex(MAP.haze);
+      updateEnvMap();                                                                  // reflets des avions : ciel de la carte
       Object.assign(mission, { active: false, wps: [] });
       plan.from = AIRPORTS[0].id; plan.to = AIRPORTS[1].id; plan.wps = [];
       S.home = AIRPORTS[0].id; mapView.fitted = false;
@@ -2736,87 +2740,614 @@
       im.frustumCulled = false; im.instanceMatrix.needsUpdate = true; parent.add(im); return im;
     }
 
-    // ════════════════════════ Avions ════════════════════════
-    function strut(parent, a, b, mat, rad = 0.06) {
-      const dir = new THREE.Vector3().subVectors(b, a), len = dir.length();
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, len, 6), mat);
-      m.position.copy(a).addScaledVector(dir, 0.5);
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-      parent.add(m); return m;
-    }
-    function createPlane(ac) {
-      const L = ac.look, g = new THREE.Group(), P = { props: [], gear: [], ail: [] };
-      const body = new THREE.MeshStandardMaterial({ map: makeLivery(L.body, L.stripe, L.pin), roughness: 0.45, metalness: 0.1 });
-      const wingM = new THREE.MeshStandardMaterial({ color: L.wing, roughness: 0.5, flatShading: true });
-      const accent = new THREE.MeshStandardMaterial({ color: L.stripe, roughness: 0.5, flatShading: true });
-      const dark = new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.8 });
-      const glass = new THREE.MeshStandardMaterial({ color: 0x6fa8dc, roughness: 0.1, metalness: 0.6, transparent: true, opacity: 0.75 });
-      const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); parent.add(m); return m; };
-      const H = Math.PI / 2, len = L.len, r = L.r, span = L.span, c = L.chord;
-      const wingZ = len * 0.06, wingY = L.wingY;
-      const mkProp = (x, y, z, blade) => { const p = new THREE.Group(); p.position.set(x, y, z); p.add(new THREE.Mesh(new THREE.BoxGeometry(0.22, blade, 0.07), dark)); g.add(p); P.props.push(p); };
+    // ════════════════════════ Avions : kit de modélisation ════════════════════════
+    // Pièces fixes fusionnées par matériau avec BufferGeometryUtils (exemples three r128, jsDelivr) : beaucoup de détail pour ~25 appels de rendu.
+    // Sans la bibliothèque (hors ligne), chaque pièce reste un Mesh séparé : même image, plus d'appels.
+    const BGU = THREE.BufferGeometryUtils || null;
+    const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), NZ = new THREE.Vector3(0, 0, -1);
+    const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+    const _km = new THREE.Matrix4(), _kq = new THREE.Quaternion(), _kv = new THREE.Vector3(), _ks = new THREE.Vector3(), _ke = new THREE.Euler();
+    const css = col => '#' + new THREE.Color(col).getHexString();
+    const luma = col => { const c = new THREE.Color(col); return 0.3 * c.r + 0.59 * c.g + 0.11 * c.b; };
+    // Boîte à arêtes arrondies (RoundedBoxGeometry, exemples r128) ; indexée pour la fusion. Repli : boîte simple.
+    const rbox = (w, h, d, rad) => THREE.RoundedBoxGeometry && BGU ? BGU.mergeVertices(new THREE.RoundedBoxGeometry(w, h, d, 2, Math.min(rad, w / 2, h / 2, d / 2) * 0.99)) : new THREE.BoxGeometry(w, h, d);
 
-      // Fuselage, nez, moteurs (l'avion regarde vers +Z)
-      add(new THREE.CylinderGeometry(r, r * 0.42, len, 18), body, 0, 0, 0, H);
-      if (!L.twin) {
-        add(new THREE.CylinderGeometry(r * 0.55, r, 1.2, 16), accent, 0, 0, len / 2 + 0.6, H);
-        add(new THREE.ConeGeometry(r * 0.42, 0.6, 12), dark, 0, 0, len / 2 + 1.5, H);
-        mkProp(0, 0, len / 2 + 1.3, 3.0);
-        const cn = add(new THREE.SphereGeometry(1, 16, 12), glass, 0, r * 0.62, len * 0.12); cn.scale.set(r * 0.85, r * 0.75, r * 1.9);
-      } else {
-        const nose = add(new THREE.SphereGeometry(r, 18, 12), body, 0, 0, len / 2); nose.scale.set(1, 1, 1.5);
-        const cn = add(new THREE.SphereGeometry(1, 16, 12), glass, 0, r * 0.45, len / 2 + r * 0.55); cn.scale.set(r * 0.8, r * 0.45, r * 0.7);
-        for (const s of [-1, 1]) {
-          const nx = s * span * 0.27, ny = wingY - 0.15, nz = wingZ + c * 0.35;
-          add(new THREE.CylinderGeometry(0.5, 0.42, 3.0, 14), accent, nx, ny, nz, H);
-          add(new THREE.ConeGeometry(0.32, 0.5, 12), dark, nx, ny, nz + 1.75, H);
-          mkProp(nx, ny, nz + 1.6, 2.8);
+    function flipWinding(g) {
+      const ix = g.index;
+      for (let i = 0; i < ix.count; i += 3) { const b = ix.getX(i + 1); ix.setX(i + 1, ix.getX(i + 2)); ix.setX(i + 2, b); }
+      ix.needsUpdate = true; return g;
+    }
+    // Faces vers l'extérieur : volume signé positif (surface fermée)
+    function orientOut(g) {
+      const p = g.attributes.position, ix = g.index, A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(); let v = 0;
+      for (let i = 0; i < ix.count; i += 3) {
+        A.fromBufferAttribute(p, ix.getX(i)); B.fromBufferAttribute(p, ix.getX(i + 1)); C.fromBufferAttribute(p, ix.getX(i + 2));
+        v += A.dot(B.cross(C));
+      }
+      return v < 0 ? flipWinding(g) : g;
+    }
+    // Lot de géométries regroupées par matériau puis fusionnées en un Mesh chacune
+    function kit() {
+      const B = new Map();
+      const K = {
+        add(geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) {
+          _km.compose(_kv.set(x, y, z), _kq.setFromEuler(_ke.set(rx, ry, rz)), _ks.set(sx, sy, sz));
+          return K.addM(geo, mat, _km);
+        },
+        addM(geo, mat, m) {
+          const g = geo.clone(); if (!g.index) g.setIndex([...Array(g.attributes.position.count).keys()]);
+          if (m) { g.applyMatrix4(m); if (m.determinant() < 0) flipWinding(g); }
+          if (!B.has(mat)) B.set(mat, []);
+          B.get(mat).push(g); return g;
+        },
+        build(parent) {
+          for (const [mat, list] of B) {
+            for (const g of list) for (const n of Object.keys(g.attributes)) if (!/^(position|normal|uv|color)$/.test(n)) g.deleteAttribute(n);
+            const merged = BGU && list.length > 1 ? BGU.mergeBufferGeometries(list) : null;
+            for (const g of merged ? [merged] : list) { const o = new THREE.Mesh(g, mat); o.castShadow = !mat.transparent; parent.add(o); }
+          }
+          B.clear(); return parent;
+        }
+      };
+      return K;
+    }
+    // Pièce mobile (gouverne, dérive) : pivot posé sur la charnière a→b, axe local X (ou Y) ; la géométrie est construite dans le repère avion
+    function hinge(parent, a, b, axis, part, side) {
+      const o = new THREE.Group(), piv = new THREE.Group();
+      o.position.copy(a); o.quaternion.setFromUnitVectors(axis === 'y' ? AY : AX, b.clone().sub(a).normalize());
+      o.add(piv); parent.add(o); o.updateMatrix();
+      piv.userData.part = part; if (side) piv.userData.side = side;
+      const K = kit(), inv = o.matrix.clone().invert();
+      return { piv, add: (geo, mat) => K.addM(geo, mat, inv), done: () => K.build(piv) };
+    }
+    // Tige / hauban de a à b (section elliptique : flat < 1 aplatit selon z)
+    function rod(K, mat, a, b, rad, flat = 1, segs = 8) {
+      const d = b.clone().sub(a), L = d.length(); d.normalize();
+      const g = new THREE.CylinderGeometry(rad, rad, L, segs); g.scale(1, 1, flat);
+      _km.compose(_kv.copy(a).addScaledVector(d, L / 2), _kq.setFromUnitVectors(AY, d), _ks.set(1, 1, 1));
+      return K.addM(g, mat, _km);
+    }
+    const cr = (a, b, c, d, t) => b + 0.5 * t * (c - a + t * (2 * a - 5 * b + 4 * c - d + t * (3 * (b - c) + d - a)));
+    // Sections clés [z, demi-largeur, demi-hauteur, centre y] → courbe douce (Catmull-Rom)
+    function smoothSec(keys, n = 4) {
+      const out = [], m = keys.length;
+      for (let j = 0; j < m - 1; j++) for (let s = 0; s < n; s++) {
+        const t = s / n, p0 = keys[Math.max(0, j - 1)], p1 = keys[j], p2 = keys[j + 1], p3 = keys[Math.min(m - 1, j + 2)];
+        out.push(p1.map((_, q) => q === 0 ? p1[0] + (p2[0] - p1[0]) * t : q === 3 ? cr(p0[q], p1[q], p2[q], p3[q], t) : Math.max(0, cr(p0[q], p1[q], p2[q], p3[q], t))));
+      }
+      out.push(keys[m - 1].slice()); return out;
+    }
+    function secAt(sec, z) {
+      if (z <= sec[0][0]) return sec[0];
+      for (let j = 1; j < sec.length; j++) if (z <= sec[j][0]) {
+        const a = sec[j - 1], b = sec[j], t = (z - a[0]) / (b[0] - a[0] || 1);
+        return a.map((v, q) => v + (b[q] - v) * t);
+      }
+      return sec[sec.length - 1];
+    }
+    // Corps fuselé : sections super-elliptiques (exposant ex), de l'arrière vers l'avant.
+    // UV : u = angle (0 dessous, 0,25 flanc gauche +X, 0,5 dessus, 0,75 flanc droit), v = position en z. a0..a1 : portion d'angle (verrière, cadres).
+    function loftGeo(sec, seg = 28, ex = 2, a0 = 0, a1 = 1, caps = true) {
+      const z0 = sec[0][0], z1 = sec[sec.length - 1][0], R = seg + 1, pos = [], uv = [], idx = [], k = 2 / ex;
+      for (const [z, rx, ry, yc] of sec) for (let i = 0; i <= seg; i++) {
+        const u = a0 + (a1 - a0) * i / seg, a = u * Math.PI * 2, s = Math.sin(a), c = Math.cos(a);
+        pos.push(Math.sign(s) * Math.abs(s) ** k * rx, yc - Math.sign(c) * Math.abs(c) ** k * ry, z);
+        uv.push(u, (z - z0) / (z1 - z0 || 1));
+      }
+      for (let j = 0; j < sec.length - 1; j++) for (let i = 0; i < seg; i++) { const a = j * R + i, b = a + 1, c = a + R, d = c + 1; idx.push(a, b, c, b, d, c); }
+      const full = a0 === 0 && a1 === 1;
+      if (full && caps) [0, sec.length - 1].forEach(j => {
+        const [z, rx, , yc] = sec[j]; if (rx < 1e-3) return;
+        const o = pos.length / 3; pos.push(0, yc, z); uv.push(0.5, j ? 1 : 0);
+        for (let i = 0; i < seg; i++) j ? idx.push(o, j * R + i, j * R + i + 1) : idx.push(o, j * R + i + 1, j * R + i);
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      if (full) {   // couture sous le ventre : normales moyennées
+        const n = g.attributes.normal;
+        for (let j = 0; j < sec.length; j++) {
+          const a = j * R, b = a + seg; _kv.fromBufferAttribute(n, a).add(_ks.fromBufferAttribute(n, b)).normalize();
+          n.setXYZ(a, _kv.x, _kv.y, _kv.z); n.setXYZ(b, _kv.x, _kv.y, _kv.z);
         }
       }
-
-      // Ailes et ailerons
-      const wing = new THREE.Group(); wing.position.set(0, wingY, wingZ); g.add(wing);
-      add(new THREE.BoxGeometry(span, 0.22, c), wingM, 0, 0, 0, 0, 0, 0, wing);
-      const aLen = span * 0.26;
-      for (const s of [-1, 1]) {
-        const piv = new THREE.Group(); piv.position.set(s * (span / 2 - aLen / 2 - 0.15), 0, -c / 2); wing.add(piv);
-        add(new THREE.BoxGeometry(aLen, 0.12, c * 0.28), accent, 0, 0, -c * 0.14, 0, 0, 0, piv);
-        P.ail.push({ piv, side: s });
-      }
-      add(new THREE.BoxGeometry(0.3, 0.3, 0.4), new THREE.MeshBasicMaterial({ color: 0xff3030 }), span / 2 + 0.1, 0, 0, 0, 0, 0, wing);
-      add(new THREE.BoxGeometry(0.3, 0.3, 0.4), new THREE.MeshBasicMaterial({ color: 0x30ff60 }), -span / 2 - 0.1, 0, 0, 0, 0, 0, wing);
-      if (wingY > 0 && !L.twin) for (const s of [-1, 1]) strut(g, new THREE.Vector3(s * r * 0.7, -r * 0.4, wingZ), new THREE.Vector3(s * span * 0.3, wingY - 0.1, wingZ), dark);
-
-      // Empennage : dérive + gouverne de direction, stabilisateur + gouverne de profondeur
-      const tz = -len / 2 + 0.55, fh = 1.1 + r * 0.9, fc = 1.5 * Math.max(1, r / 0.85);
-      add(new THREE.BoxGeometry(0.15, fh, fc), accent, 0, r * 0.2 + fh / 2, tz - 0.05);
-      const rud = new THREE.Group(); rud.position.set(0, r * 0.2 + fh / 2, tz - 0.05 - fc / 2); g.add(rud);
-      add(new THREE.BoxGeometry(0.12, fh * 0.85, fc * 0.4), wingM, 0, 0, -fc * 0.2, 0, 0, 0, rud);
-      P.rud = rud;
-      const hs = new THREE.Group(); hs.position.set(0, L.ttail ? r * 0.2 + fh : r * 0.15, tz); g.add(hs);
-      const hsSpan = span * 0.36, hc = c * 0.6;
-      add(new THREE.BoxGeometry(hsSpan, 0.15, hc), wingM, 0, 0, 0, 0, 0, 0, hs);
-      const elev = new THREE.Group(); elev.position.set(0, 0, -hc / 2); hs.add(elev);
-      add(new THREE.BoxGeometry(hsSpan * 0.9, 0.1, hc * 0.4), accent, 0, 0, -hc * 0.2, 0, 0, 0, elev);
-      P.elev = elev;
-      P.beacon = add(new THREE.BoxGeometry(0.25, 0.25, 0.25), new THREE.MeshBasicMaterial({ color: 0xff2020 }), 0, r * 0.2 + fh + (L.ttail ? 0.35 : 0.15), tz - 0.1);
-
-      // Train d'atterrissage (pivots animés pour la rentrée)
-      const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 12);
-      const mx = L.twin ? span * 0.27 : Math.max(1.3, r * 1.6);
-      const mainTop = L.twin ? wingY - 0.6 : (wingY > 0 ? -r * 0.6 : wingY - 0.1);
-      const legs = [[0, len * (L.twin ? 0.4 : 0.36), -r * 0.6], [-mx, wingZ + 0.15, mainTop], [mx, wingZ + 0.15, mainTop]];
-      for (const [x, z, top] of legs) {
-        const piv = new THREE.Group(); piv.position.set(x, top, z); g.add(piv);
-        const h = top + 1.25;
-        add(new THREE.BoxGeometry(0.12, h, 0.12), dark, 0, -h / 2, 0, 0, 0, 0, piv);
-        add(wheelGeo, dark, 0, -h, 0, 0, 0, H, piv);
-        if (!ac.retract) { const pant = add(new THREE.SphereGeometry(1, 12, 8), wingM, 0, -h + 0.05, 0, 0, 0, 0, piv); pant.scale.set(0.28, 0.42, 0.7); }
-        P.gear.push(piv);
-      }
-      g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-      g.userData.parts = P;
       return g;
+    }
+    // Surface portante (aile, empennage, pale) : profil NACA 00xx (+ cambrure) lofté entre des stations
+    // st[i] = {p: bord d'attaque, c: corde, t: épaisseur relative, u, cd: sens de la corde (−Z), td: sens de l'épaisseur (+Y)}
+    // f0..f1 : tranche de corde (gouvernes). UV : v = 0 bord de fuite intrados → 0,5 bord d'attaque → 1 bord de fuite extrados.
+    const nacaT = f => 5 * (0.2969 * Math.sqrt(f) - 0.126 * f - 0.3516 * f * f + 0.2843 * f ** 3 - 0.1036 * f ** 4);
+    function foilGeo(st, f0 = 0, f1 = 1, n = 8, camber = 0) {
+      const loop = [], F = i => f0 + (f1 - f0) * (1 - Math.cos(i / n * Math.PI)) / 2;
+      for (let i = n; i >= 0; i--) loop.push([F(i), -1]);
+      for (let i = f0 > 0 ? 0 : 1; i <= n; i++) loop.push([F(i), 1]);
+      const L = loop.length, pos = [], uv = [], idx = [], P = new THREE.Vector3();
+      for (const s of st) for (const [f, sd] of loop) {
+        const y = (camber * 4 * f * (1 - f) + sd * nacaT(f) * s.t) * s.c;
+        P.copy(s.p).addScaledVector(s.cd || NZ, f * s.c).addScaledVector(s.td || AY, y);
+        pos.push(P.x, P.y, P.z); uv.push(s.u, 0.5 + sd * f * 0.5);
+      }
+      for (let j = 0; j < st.length - 1; j++) for (let k = 0; k < L; k++) {
+        const a = j * L + k, b = j * L + (k + 1) % L; idx.push(a, b, a + L, b, b + L, a + L);
+      }
+      [0, st.length - 1].forEach(j => {   // bouts fermés (sommets dupliqués : arête vive)
+        const o = pos.length / 3; let cx = 0, cy = 0, cz = 0;
+        for (let k = 0; k < L; k++) { const q = (j * L + k) * 3; pos.push(pos[q], pos[q + 1], pos[q + 2]); uv.push(uv[(j * L + k) * 2], uv[(j * L + k) * 2 + 1]); cx += pos[q]; cy += pos[q + 1]; cz += pos[q + 2]; }
+        pos.push(cx / L, cy / L, cz / L); uv.push(st[j].u, 0.5);
+        for (let k = 0; k < L; k++) j ? idx.push(o + L, o + k, o + (k + 1) % L) : idx.push(o + L, o + (k + 1) % L, o + k);
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx); orientOut(g); g.computeVertexNormals(); return g;
+    }
+    // Aile (deux côtés) : caisson, volets et saumons fixes, ailerons sur charnière (P.ail, côté +1 = aile gauche +X)
+    // W = {s: demi-envergure, y, dih (pente), c(η), le(η), t0, t1, fh: corde du caisson, flap: [η0, η1], ail: [η0, η1], u(x)}
+    function buildWing(root, K, W, mat, camber = 0.02) {
+      const st = (sd, e) => ({ p: V3(sd * e * W.s, W.y + e * W.s * W.dih, W.le(e)), c: W.c(e), t: W.t0 + (W.t1 - W.t0) * e, u: W.u(sd * e * W.s) });
+      const f1 = W.fh + 0.012;
+      for (const sd of [-1, 1]) {
+        K.add(foilGeo([st(sd, 0), st(sd, 1)], 0, W.fh, 10, camber), mat);
+        K.add(foilGeo([st(sd, 0), st(sd, W.flap[0])], f1, 1, 4, camber), mat);
+        K.add(foilGeo([st(sd, W.flap[0] + 0.004), st(sd, W.flap[1])], f1, 1, 4, camber), mat);
+        K.add(foilGeo([st(sd, W.ail[1] + 0.01), st(sd, 1)], f1, 1, 4, camber), mat);
+        const hp = e => { const q = st(sd, e); return q.p.clone().addScaledVector(NZ, f1 * q.c).addScaledVector(AY, camber * 4 * f1 * (1 - f1) * q.c); };
+        const a = hp(W.ail[0]), b = hp(W.ail[1]);
+        const H = hinge(root, sd > 0 ? a : b, sd > 0 ? b : a, 'x', 'ail', sd);
+        H.add(foilGeo([st(sd, W.ail[0]), st(sd, W.ail[1])], f1, 1, 5, camber), mat); H.done();
+      }
+      return e => st(1, e);
+    }
+    // Hélice : pale vrillée (calage 62° → 18°), saumon peint à part
+    function bladeGeo(R, hub, tip) {
+      const st = [], e0 = tip ? 0.9 : hub * 0.6 / R, e1 = tip ? 1 : 0.905, n = tip ? 3 : 7;
+      for (let i = 0; i <= n; i++) {
+        const e = e0 + (e1 - e0) * i / n, b = (62 - 44 * e) * DEG;
+        const c = R * (0.07 + 0.09 * Math.sin(Math.PI * Math.min(e, 0.95))) * (e > 0.9 ? 1 - (e - 0.9) * 5.5 : 1);
+        const cd = V3(Math.cos(b), 0, -Math.sin(b)), td = V3(Math.sin(b), 0, Math.cos(b));
+        st.push({ p: V3(0, e * R, 0).addScaledVector(cd, -0.4 * c), c, t: 0.16 - 0.1 * e, u: e, cd, td });
+      }
+      return foilGeo(st, 0, 1, 5);
+    }
+    function spinnerGeo(rb, l) {
+      const pts = []; for (let i = 0; i <= 12; i++) { const t = i / 12; pts.push(new THREE.Vector2(rb * Math.max(0.001, (1 - t ** 1.8)) ** 0.55, t * l)); }
+      return new THREE.LatheGeometry(pts, 20).rotateX(Math.PI / 2);
+    }
+    const colorize = (g, hex) => { const c = new THREE.Color(hex), n = g.attributes.position.count, a = new Float32Array(n * 3); for (let i = 0; i < n; i++) c.toArray(a, i * 3); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; };
+    // Feux : verre coloré (fusionné) + halo additif (Points) ; P.beacon / P.strobes clignotent
+    function lens(K, A, x, y, z, hex, r = 0.06) { K.add(colorize(new THREE.SphereGeometry(r, 8, 6), hex), A.lens, x, y, z); }
+    function glowPts(list, size, part) {
+      const g = new THREE.BufferGeometry(), p = [], c = [];
+      for (const [x, y, z, hex] of list) { p.push(x, y, z); new THREE.Color(hex).toArray(c, c.length); }
+      g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+      const o = new THREE.Points(g, new THREE.PointsMaterial({ size, map: airMats().glow, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      if (part) { o.userData.part = part; o.visible = part !== 'strobe'; }
+      return o;
+    }
+    // Jambe de train dans le repère du pivot : roue centrée à y = −h, rayon 0,35 (bas des roues à 1,6 m sous le centre avion)
+    function gearLeg(K, A, h, sd, retract, paint, pant) {
+      K.add(A.tireGeo, A.tire, 0, -h, 0); K.add(A.hubGeo, A.gearPaint, 0, -h, 0);
+      if (retract || sd === 0) {
+        K.add(new THREE.CylinderGeometry(0.075, 0.075, h * 0.55, 10), A.gearPaint, 0, -h * 0.275, 0);
+        K.add(new THREE.CylinderGeometry(0.05, 0.05, h * 0.5, 10), A.chrome, 0, -h * 0.72, 0);
+        K.add(new THREE.BoxGeometry(0.035, h * 0.22, 0.05), A.gearPaint, 0, -h * 0.5, 0.09, 0.45);
+        K.add(new THREE.BoxGeometry(0.035, h * 0.22, 0.05), A.gearPaint, 0, -h * 0.68, 0.09, -0.45);
+        if (sd === 0) for (const x of [-0.14, 0.14]) K.add(new THREE.BoxGeometry(0.03, 0.42, 0.12), A.gearPaint, x, -h + 0.16, 0);
+        else K.add(new THREE.BoxGeometry(0.03, 0.4, 0.14), A.gearPaint, sd * 0.14, -h + 0.15, 0);
+        if (retract && sd) K.add(rbox(0.03, h * 0.62, 0.46, 0.012), paint, sd * 0.2, -h * 0.42, 0);   // trappe
+      } else rod(K, A.gearPaint, V3(-sd * 0.55, 0.15, 0), V3(0, -h + 0.08, 0), 0.07, 0.4);           // jambe en lame d'acier
+      if (pant) {   // carénage de roue, ouvert dessous
+        const ps = smoothSec([[-0.62, 0.02, 0.06, 0.04], [-0.35, 0.13, 0.3, 0.03], [0, 0.16, 0.41, 0], [0.32, 0.14, 0.33, 0], [0.55, 0.03, 0.08, -0.03]], 3);
+        K.add(loftGeo(ps, 18, 2.2, 0.12, 0.88), pant, 0, -h + 0.06, 0);
+      }
+    }
+
+    // ════════════════════════ Avions : matériaux et peintures ════════════════════════
+    // Reflets : carte d'environnement pré-filtrée (PMREM) du ciel de la carte, pour les matériaux marqués (avions, missiles)
+    let ENV_RT = null;
+    const ENV_MATS = new Set();
+    function envMat(o, k = 1) {
+      const m = new THREE.MeshStandardMaterial(o); m.envMapIntensity = k;
+      if (ENV_RT) m.envMap = ENV_RT.texture;
+      ENV_MATS.add(m); return m;
+    }
+    function updateEnvMap() {
+      const haze = new THREE.Color(MAP.haze), P = PALETTES[MAP.palette], gr = new THREE.Color().fromArray((P.grass || P.sand).map(v => v / 255));
+      gr.multiplyScalar(0.6).lerp(haze, 0.2);
+      const mat = new THREE.ShaderMaterial({
+        side: THREE.BackSide, depthWrite: false,
+        uniforms: { top: { value: sky.material.uniforms.top.value }, hz: { value: haze }, gr: { value: gr }, sun: { value: sunDir } },
+        vertexShader: `varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader: `uniform vec3 top; uniform vec3 hz; uniform vec3 gr; uniform vec3 sun; varying vec3 vDir;
+          void main(){ vec3 d = normalize(vDir); float h = d.y;
+            vec3 c = h > 0.0 ? mix(hz, top, pow(h, 0.55)) : mix(hz, gr, pow(min(1.0, -h * 5.0), 0.6));
+            float s = max(dot(d, sun), 0.0); c += vec3(1.0, 0.93, 0.78) * (pow(s, 800.0) * 24.0 + pow(s, 10.0) * 0.3);
+            gl_FragColor = linearToOutputTexel(vec4(c, 1.0)); }`
+      });
+      const es = new THREE.Scene(), geo = new THREE.SphereGeometry(10, 48, 24); es.add(new THREE.Mesh(geo, mat));
+      const pm = new THREE.PMREMGenerator(renderer), rt = pm.fromScene(es, 0.02);
+      pm.dispose(); mat.dispose(); geo.dispose();
+      if (ENV_RT) ENV_RT.dispose();
+      ENV_RT = rt;
+      ENV_MATS.forEach(m => { m.envMap = rt.texture; m.needsUpdate = true; });
+    }
+    // Matériaux communs à tous les avions (créés une fois)
+    let AM = null;
+    function airMats() {
+      if (AM) return AM;
+      const glow = (() => {
+        const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+        const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+        gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,255,255,.75)'); gr.addColorStop(0.5, 'rgba(255,255,255,.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+      })();
+      // Tableau de bord : cadrans, écrans
+      const panel = canvasTex(256, (g, s) => {
+        g.fillStyle = '#26292e'; g.fillRect(0, 0, s, s);
+        for (let i = 0; i < 6; i++) {
+          const x = 30 + (i % 3) * 52, y = 70 + Math.floor(i / 3) * 56;
+          g.fillStyle = '#0c0d0f'; g.beginPath(); g.arc(x, y, 22, 0, 7); g.fill();
+          g.strokeStyle = '#d9dde2'; g.lineWidth = 1.2;
+          for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; g.beginPath(); g.moveTo(x + Math.cos(a) * 16, y + Math.sin(a) * 16); g.lineTo(x + Math.cos(a) * 20, y + Math.sin(a) * 20); g.stroke(); }
+          g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); const a = rnd(0, 6.3); g.lineTo(x + Math.cos(a) * 15, y + Math.sin(a) * 15); g.stroke();
+        }
+        g.fillStyle = '#123a52'; g.fillRect(170, 46, 70, 52); g.fillStyle = '#4fc3f7'; g.fillRect(176, 70, 58, 2); g.fillStyle = '#7a5a2a'; g.fillRect(170, 72, 70, 26);
+        g.fillStyle = '#1d5c2c'; g.fillRect(170, 108, 70, 44);
+      });
+      // Peau générique (carénages, trappes, nacelles) : panneaux et rivets, teintée par la couleur du matériau
+      const skin = skinTex(256, 256, (g, b, w, h) => {
+        g.fillStyle = '#ececec'; g.fillRect(0, 0, w, h);
+        for (let i = 0; i < 4; i++) { seam(g, b, 0, i * 64 + 2, w, i * 64 + 2, 6); seam(g, b, i * 64 + 2, 0, i * 64 + 2, h, 6); }
+        for (let i = 0; i < 5; i++) { const x = rnd(10, 200), y = rnd(10, 200), a = rnd(20, 44), c = rnd(16, 36); seam(g, b, x, y, x + a, y); seam(g, b, x + a, y, x + a, y + c); seam(g, b, x + a, y + c, x, y + c); seam(g, b, x, y + c, x, y); }
+        noise(g, w, 8);
+      });
+      skin.map.wrapT = skin.bump.wrapT = THREE.RepeatWrapping;
+      AM = {
+        glow, skin,
+        chrome: envMat({ color: 0xd5d9de, metalness: 1, roughness: 0.18 }, 1),
+        gearPaint: envMat({ color: 0xbfc4ca, metalness: 0.45, roughness: 0.4 }, 0.6),
+        nozzle: envMat({ color: 0x77706a, metalness: 0.9, roughness: 0.42, flatShading: true }, 0.8),
+        steel: envMat({ color: 0x6d6a66, metalness: 0.85, roughness: 0.45 }, 0.8),
+        soot: new THREE.MeshStandardMaterial({ color: 0x1c1b1a, roughness: 0.9, side: THREE.DoubleSide }),
+        tire: new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.92 }),
+        rubber: envMat({ color: 0x2a2d31, roughness: 0.6, metalness: 0.15 }, 0.4),
+        hole: new THREE.MeshBasicMaterial({ color: 0x07080a }),
+        frame: envMat({ color: 0x33363b, roughness: 0.5, metalness: 0.4 }, 0.5),
+        seat: new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.85 }),
+        suit: new THREE.MeshStandardMaterial({ color: 0x55603f, roughness: 0.9 }),
+        shirt: new THREE.MeshStandardMaterial({ color: 0x6e8fb5, roughness: 0.9 }),
+        skinTone: new THREE.MeshStandardMaterial({ color: 0xd9a888, roughness: 0.7 }),
+        helmet: envMat({ color: 0xe9ebee, roughness: 0.35, metalness: 0.1 }, 0.6),
+        helmetDark: envMat({ color: 0x1b1d21, roughness: 0.35, metalness: 0.2 }, 0.6),
+        panel: new THREE.MeshStandardMaterial({ map: panel, roughness: 0.6, emissive: 0xffffff, emissiveMap: panel, emissiveIntensity: 0.25 }),
+        blade: envMat({ color: 0x23262a, roughness: 0.45, metalness: 0.35 }, 0.5),
+        tip: new THREE.MeshStandardMaterial({ color: 0xf2c14e, roughness: 0.5 }),
+        lens: new THREE.MeshBasicMaterial({ vertexColors: true }),
+        tireGeo: new THREE.TorusGeometry(0.245, 0.105, 10, 22).rotateY(Math.PI / 2),
+        hubGeo: new THREE.CylinderGeometry(0.17, 0.17, 0.2, 16).rotateZ(Math.PI / 2),
+      };
+      return AM;
+    }
+    // Peinture (couleur + relief) ; trim = peau générique teintée (une par couleur)
+    const BUMP = 0.035;
+    const paintMat = (T, mil) => envMat({ map: T.map, bumpMap: T.bump, bumpScale: BUMP, roughness: mil ? 0.58 : 0.3, metalness: mil ? 0.25 : 0.12 }, mil ? 0.45 : 0.65);
+    const TRIMS = {};
+    function trimMat(col, mil) {
+      const key = css(col) + (mil ? 'm' : '');
+      return TRIMS[key] || (TRIMS[key] = envMat({ color: col, map: airMats().skin.map, bumpMap: airMats().skin.bump, bumpScale: BUMP, roughness: mil ? 0.58 : 0.32, metalness: mil ? 0.25 : 0.12 }, mil ? 0.45 : 0.65));
+    }
+    // Toiles couleur + relief peintes ensemble (GFX.tex fois plus fines aux niveaux Élevé / Ultra)
+    function skinTex(w, h, paint) {
+      const k = GFX.tex, mk = () => { const c = document.createElement('canvas'); c.width = w * k; c.height = h * k; const g = c.getContext('2d'); g.scale(k, k); return g; };
+      const g = mk(), b = mk();
+      b.fillStyle = '#808080'; b.fillRect(0, 0, w, h);
+      paint(g, b, w, h);
+      const T = c => { const t = new THREE.CanvasTexture(c.canvas); t.anisotropy = maxAniso; t.wrapS = THREE.RepeatWrapping; return t; };
+      return { map: T(g), bump: T(b) };
+    }
+    // Ligne de panneau : trait sombre sur la couleur, rainure sur le relief ; rivets en relief tous les « riv » px
+    function seam(g, b, x0, y0, x1, y1, riv = 0) {
+      g.strokeStyle = 'rgba(0,0,0,.2)'; g.lineWidth = 0.6; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      b.strokeStyle = '#4a4a4a'; b.lineWidth = 0.9; b.beginPath(); b.moveTo(x0, y0); b.lineTo(x1, y1); b.stroke();
+      if (!riv) return;
+      const L = Math.hypot(x1 - x0, y1 - y0), n = Math.floor(L / riv), nx = -(y1 - y0) / L * 1.7, ny = (x1 - x0) / L * 1.7;
+      b.fillStyle = '#b4b4b4';
+      for (let i = 0; i <= n; i++) { const t = i / n; b.fillRect(x0 + (x1 - x0) * t + nx - 0.45, y0 + (y1 - y0) * t + ny - 0.45, 0.9, 0.9); }
+    }
+    // Texte en mètres dans le repère courant (hauteur des capitales hm)
+    function mText(g, txt, hm, col, font = 'Arial, Helvetica, sans-serif') {
+      g.save(); g.scale(hm / 72, hm / 72); g.fillStyle = col; g.font = `700 100px ${font}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(txt, 0, 4); g.restore();
+    }
+    function roundel(g, R, cols) { cols.forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(0, 0, R * (1 - i / cols.length), 0, 7); g.fill(); }); }
+    function rrect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+    // Repère de peinture du fuselage : side(ctx, ±1, z, hauteur relative −1…1, fn) dessine en mètres sur le flanc gauche (+1) ou droit (−1),
+    // x vers l'arrière… à l'endroit pour un observateur placé de ce côté
+    function bodyFrame(sec, ex, w, h) {
+      const z0 = sec[0][0], z1 = sec[sec.length - 1][0], kz = h / (z1 - z0);
+      const Y = z => (1 - (z - z0) / (z1 - z0)) * h;
+      const ku = z => { const [, rx, ry] = secAt(sec, z); return w / Math.max(0.3, Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry)))); };
+      const uL = hf => Math.acos(clamp(-Math.sign(hf) * Math.abs(hf) ** (ex / 2), -1, 1)) / (Math.PI * 2);
+      const side = (g, sd, z, hf, fn) => {
+        g.save(); g.translate((sd > 0 ? uL(hf) : 1 - uL(hf)) * w, Y(z));
+        if (sd > 0) g.transform(0, kz, -ku(z), 0, 0, 0); else g.transform(0, -kz, ku(z), 0, 0, 0);
+        fn(g); g.restore();
+      };
+      return { z0, z1, Y, kz, ku, uL, side };
+    }
+    // Surfaces (aile / dérive) : x toile = u·w, y = (0,5 ∓ 0,5·f)·h (extrados / flanc gauche en haut)
+    const upperY = (f, h) => (0.5 - 0.5 * f) * h, lowerY = (f, h) => (0.5 + 0.5 * f) * h;
+
+    // ════════════════════════ Avions civils ════════════════════════
+    const REGS = { alouette: 'F-GALO', sirocco: 'F-HSRC', faucon: 'F-AFCN', atlas: 'F-RATL' };
+    function paintCivilBody(ac, sec, ex, o) {
+      const L = ac.look, reg = REGS[ac.id] || 'F-XSKY', dark = luma(L.body) < 0.45;
+      return skinTex(512, 512, (g, b, w, h) => {
+        const F = bodyFrame(sec, ex, w, h), { Y, uL, side } = F;
+        g.fillStyle = L.body; g.fillRect(0, 0, w, h);
+        const belly = g.createLinearGradient(0, 0, w, 0);   // ventre légèrement plus sombre
+        belly.addColorStop(0, 'rgba(0,0,0,.12)'); belly.addColorStop(0.14, 'rgba(0,0,0,0)'); belly.addColorStop(0.86, 'rgba(0,0,0,0)'); belly.addColorStop(1, 'rgba(0,0,0,.12)');
+        g.fillStyle = belly; g.fillRect(0, 0, w, h);
+        // Bande de décoration qui remonte vers la queue, filet fin au-dessus
+        const band = (lo, hi, col) => {
+          for (const sd of [1, -1]) {
+            g.fillStyle = col; g.beginPath();
+            const X = hf => (sd > 0 ? uL(hf) : 1 - uL(hf)) * w, n = 48, pts = [];
+            for (let i = 0; i <= n; i++) { const z = F.z0 + 0.25 + (F.z1 - F.z0 - 0.25) * i / n, rise = smoothstep(o.cabin, F.z0, z) * 0.5; pts.push([z, lo + rise, hi + rise * 1.1]); }
+            pts.forEach(([z, a], i) => i ? g.lineTo(X(a), Y(z)) : g.moveTo(X(a), Y(z)));
+            for (let i = pts.length - 1; i >= 0; i--) g.lineTo(X(pts[i][2]), Y(pts[i][0]));
+            g.closePath(); g.fill();
+          }
+        };
+        band(-0.32, -0.08, L.stripe); band(-0.02, 0.04, L.pin);
+        if (o.cowl !== null) {   // capot moteur : couleur d'accent, joints, ouïes
+          g.fillStyle = L.stripe; g.fillRect(0, 0, w, Y(o.cowl));
+          g.fillStyle = L.pin; g.fillRect(0, Y(o.cowl) - 2, w, 2.5);
+          seam(g, b, 0, Y(o.cowl), w, Y(o.cowl), 5); seam(g, b, w / 2, 0, w / 2, Y(o.cowl)); seam(g, b, w * 0.25, 0, w * 0.25, Y(o.cowl)); seam(g, b, w * 0.75, 0, w * 0.75, Y(o.cowl));
+          for (const sd of [1, -1]) side(g, sd, o.cowl + 0.55, -0.25, c => { for (let i = 0; i < 4; i++) { c.fillStyle = 'rgba(0,0,0,.55)'; c.fillRect(i * 0.07 - 0.12, -0.03, 0.035, 0.12); } });
+          // suie d'échappement sous le flanc droit
+          const sx = (1 - uL(-0.72)) * w, sg = g.createLinearGradient(0, Y(o.cowl + 0.3), 0, Y(o.cowl - 3));
+          sg.addColorStop(0, 'rgba(30,26,22,.45)'); sg.addColorStop(1, 'rgba(30,26,22,0)');
+          g.fillStyle = sg; g.fillRect(sx - w * 0.05, Y(o.cowl + 0.3), w * 0.1, Y(o.cowl - 3) - Y(o.cowl + 0.3));
+        }
+        if (o.twin) {   // hublots cabine, bande antireflet devant le pare-brise, porte cargo, titres
+          for (const sd of [1, -1]) {
+            for (let z = o.cabin - 0.6, i = 0; i < 7; z -= 0.78, i++) side(g, sd, z, 0.32, c => {
+              c.fillStyle = '#16202a'; rrect(c, -0.14, -0.17, 0.28, 0.34, 0.1); c.fill();
+              c.fillStyle = 'rgba(160,200,230,.35)'; rrect(c, -0.11, -0.15, 0.2, 0.1, 0.05); c.fill();
+            });
+            if (ac.id === 'atlas') side(g, sd, o.cabin - 1.6, -0.05, c => { c.translate(-0.95, 0); mText(c, 'ATLAS', 0.42, '#1f2937'); c.translate(1.85, 0); mText(c, 'FRET', 0.42, '#d63031'); });
+          }
+          side(g, 1, -o.len * 0.18, -0.05, c => { c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 0.025; c.strokeRect(-0.8, -0.7, 1.6, 1.4); });
+          side(b, 1, -o.len * 0.18, -0.05, c => { c.strokeStyle = '#3c3c3c'; c.lineWidth = 0.03; c.strokeRect(-0.8, -0.7, 1.6, 1.4); });
+          g.fillStyle = 'rgba(25,28,32,.9)'; g.fillRect(w * 0.4, Y(o.glare[1]), w * 0.2, Y(o.glare[0]) - Y(o.glare[1]));
+        } else {   // porte cabine (flanc gauche) et poignée
+          side(g, 1, o.cabinMid, 0.15, c => { c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 0.02; c.strokeRect(-0.45, -0.42, 0.9, 0.84); c.fillStyle = '#9aa0a6'; c.fillRect(0.25, 0.02, 0.12, 0.04); });
+          side(b, 1, o.cabinMid, 0.15, c => { c.strokeStyle = '#3c3c3c'; c.lineWidth = 0.03; c.strokeRect(-0.45, -0.42, 0.9, 0.84); });
+        }
+        // Immatriculation sur les deux flancs, en arrière de l'aile
+        const zr = (o.tailZ + o.wingTE) / 2, hr = clamp(secAt(sec, zr)[2] * 0.62, 0.22, 0.55);
+        for (const sd of [1, -1]) side(g, sd, zr, 0.05, c => mText(c, reg, hr, dark ? '#f2f2f2' : '#1c2128'));
+        // Lignes de panneaux (cadres et lisses) et rivets
+        for (let z = F.z0 + 0.5; z < F.z1 - 0.4; z += 0.82) seam(g, b, 0, Y(z), w, Y(z), 4);
+        for (const u of [0.17, 0.33, 0.67, 0.83]) seam(g, b, u * w, Y(o.cowl !== null ? o.cowl : F.z1), u * w, h, 0);
+        // Salissures : traînées vers l'arrière
+        for (let i = 0; i < 40; i++) { const x = rnd(0, w), y = rnd(h * 0.3, h); g.fillStyle = `rgba(40,36,30,${rnd(0.02, 0.06)})`; g.fillRect(x, y, rnd(1, 3), rnd(20, 90)); }
+        noise(g, w, 6);
+      });
+    }
+    function paintCivilWing(ac, W) {
+      const L = ac.look, wc = css(L.wing), dark = luma(L.wing) < 0.45, reg = REGS[ac.id] || 'F-XSKY';
+      return skinTex(512, 256, (g, b, w, h) => {
+        const X = x => (0.5 + x / (2 * W.s)) * w, kx = w / (2 * W.s), kc = x => (h / 2) / W.c(Math.abs(x) / W.s);
+        g.fillStyle = wc; g.fillRect(0, 0, w, h);
+        // Saumons : couleur d'accent ; bord d'attaque : dégivreurs (bimoteur)
+        const tipC = luma(L.wing) > 0.7 ? L.stripe : L.body;
+        g.fillStyle = tipC; g.fillRect(X(W.s - 0.5), 0, w - X(W.s - 0.5), h); g.fillRect(0, 0, X(-W.s + 0.5), h);
+        if (ac.look.twin) { g.fillStyle = '#25282c'; g.fillRect(X(-W.s + 0.6), upperY(0.07, h), X(W.s - 0.6) - X(-W.s + 0.6), lowerY(0.07, h) - upperY(0.07, h)); }
+        // Longerons, nervures, rivets ; charnière des gouvernes
+        for (const f of [0.12, 0.42, W.fh]) for (const Yf of [upperY, lowerY]) seam(g, b, 0, Yf(f, h), w, Yf(f, h), f === W.fh ? 0 : 4);
+        for (let x = -W.s; x <= W.s; x += 0.55) seam(g, b, X(x), upperY(0.98, h), X(x), lowerY(0.98, h), 4);
+        // Bouchons de réservoir (extrados)
+        for (const sd of [1, -1]) {
+          const x = sd * W.s * 0.42; g.fillStyle = '#7d8187'; g.beginPath(); g.ellipse(X(x), upperY(0.28, h), 0.06 * kx, 0.06 * kc(x), 0, 0, 7); g.fill();
+          b.fillStyle = '#c0c0c0'; b.beginPath(); b.ellipse(X(x), upperY(0.28, h), 0.06 * kx, 0.06 * kc(x), 0, 0, 7); b.fill();
+        }
+        // Passerelle antidérapante à l'emplanture (aile basse)
+        if (W.y < 0 && !ac.look.twin) for (const sd of [1, -1]) {
+          const xa = sd * W.s * W.flap[0], xb = sd * (W.s * W.flap[0] + 0.55);
+          g.fillStyle = 'rgba(40,42,46,.85)'; g.fillRect(Math.min(X(xa), X(xb)), upperY(0.6, h), Math.abs(X(xb) - X(xa)), upperY(0.06, h) - upperY(0.6, h));
+        }
+        // Immatriculation sous l'aile gauche (lisible du sol)
+        const xc = W.s * 0.55;
+        g.save(); g.translate(X(xc), lowerY(0.42, h)); g.transform(kx, 0, 0, kc(xc), 0, 0); mText(g, reg, W.c(0.55) * 0.5, dark ? '#f2f2f2' : '#1c2128'); g.restore();
+        noise(g, w, 6);
+      });
+    }
+    function paintCivilTail(ac, F, Hs) {
+      const L = ac.look;
+      return skinTex(512, 256, (g, b, w, h) => {
+        const XF = e => e * 0.55 * w, kh = 0.55 * w / F.h, kc = e => (h / 2) / F.c(e);
+        g.fillStyle = L.body; g.fillRect(0, 0, w * 0.58, h);
+        g.fillStyle = css(L.wing); g.fillRect(w * 0.58, 0, w * 0.42, h);
+        // Dérive : bande oblique et filet, sur les deux faces
+        for (const Yf of [upperY, lowerY]) {
+          const quad = (a, b2, col) => { g.fillStyle = col; g.beginPath(); for (let i = 0; i <= 20; i++) { const e = i / 20; g.lineTo(XF(e), Yf(clamp(a - 0.6 * e, 0, 1), h)); } for (let i = 20; i >= 0; i--) { const e = i / 20; g.lineTo(XF(e), Yf(clamp(b2 - 0.6 * e, 0, 1), h)); } g.closePath(); g.fill(); };
+          quad(1.05, 0.78, L.stripe); quad(0.74, 0.68, L.pin);
+          seam(g, b, 0, Yf(0.66, h), XF(1), Yf(0.66, h));
+          for (let e = 0.15; e < 1; e += 0.22) seam(g, b, XF(e), Yf(0, h), XF(e), Yf(0.98, h), 4);
+          // emblème : disque et étoile à quatre branches
+          g.save(); g.translate(XF(0.6), Yf(0.3, h)); g.transform(0, -kc(0.6), -kh, 0, 0, 0);
+          roundel(g, Math.min(0.32, F.c(0.6) * 0.22), [L.stripe, '#f4f4f4', L.pin]);
+          g.fillStyle = '#ffffff'; g.beginPath(); const R = Math.min(0.32, F.c(0.6) * 0.22) * 0.55;
+          for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr = i % 2 ? R * 0.3 : R; g.lineTo(Math.sin(a) * rr, -Math.cos(a) * rr); }
+          g.closePath(); g.fill(); g.restore();
+          // stabilisateur : longerons, charnière
+          for (const f of [0.15, 0.62]) seam(g, b, w * 0.6, Yf(f, h), w, Yf(f, h), 4);
+        }
+        if (Hs) for (let x = -Hs.s; x <= Hs.s; x += 0.5) { const X = (0.6 + 0.4 * (0.5 + x / (2 * Hs.s))) * w; seam(g, b, X, upperY(0.98, h), X, lowerY(0.98, h), 4); }
+        noise(g, w, 6);
+      });
+    }
+
+    function buildCivil(ac) {
+      const L = ac.look, A = airMats(), root = new THREE.Group(), K = kit();
+      const len = L.len, r = L.r, span = L.span, s = span / 2, c = L.chord, twin = !!L.twin, high = L.wingY > 0, ttail = !!L.ttail;
+      const wingZ = len * 0.06, zt = -len / 2, zn = twin ? len / 2 + 1.45 * r : len / 2 + 1.2, ex = twin ? 2.3 : 2.15;
+      const trimB = trimMat(L.body), trimA = trimMat(L.stripe), trimW = trimMat(L.wing);
+      // ── Fuselage : sections clés (z, demi-largeur, demi-hauteur, centre y en rayons), de la queue au nez
+      const sec = smoothSec((twin
+        ? [[zt, .1, .18, .62], [zt + .1 * len, .26, .42, .45], [zt + .32 * len, .66, .84, .14], [zt + .55 * len, .92, 1, 0], [len / 2 - 1.3 * r, .93, 1, 0], [len / 2 - .2 * r, .84, .9, -.04], [len / 2 + .6 * r, .58, .6, -.14], [len / 2 + 1.15 * r, .26, .28, -.22], [zn, 0, 0, -.26]]
+        : [[zt, .1, .2, .5], [zt + .1 * len, .24, .38, .36], [zt + .35 * len, .56, .74, .12], [zt + .58 * len, .87, .95, .02], [len * .2, .95, 1, 0], [len / 2 - .2, .9, .92, -.04], [len / 2 + .5, .8, .8, -.08], [zn - .12, .66, .66, -.1], [zn, .6, .6, -.1]]
+      ).map(([z, a, b, y]) => [z, a * r, b * r, y * r]), 4);
+      const topAt = z => { const q = secAt(sec, z); return q[3] + q[2]; };
+      // ── Aile (calculée avant la peinture : emplacements des marquages)
+      const cr0 = c * (high ? 1.05 : 1.18), ct = c * (high ? 0.86 : 0.66);
+      const W = {
+        s, y: L.wingY, dih: high ? 0.026 : 0.085, c: e => cr0 + (ct - cr0) * e, le: e => wingZ + 0.5 * cr0 - 0.25 * (cr0 - (cr0 + (ct - cr0) * e)),
+        t0: 0.15, t1: 0.12, fh: 0.72, flap: [r * 1.0 / s, 0.585], ail: [0.6, 0.94], u: x => 0.5 + x / (2 * s)
+      };
+      // ── Empennage
+      const fc = 1.5 * Math.max(1, r / 0.85), fh = 1.15 + r * 0.95, finRC = fc * 1.3, finTC = fc * 0.62, finTE = zt + 0.06;
+      const finY = topAt(finTE + finRC * 0.5) - 0.06 * r, finLE = e => finTE + finRC - e * fh * 0.6;
+      const F = { h: fh, c: e => finRC + (finTC - finRC) * e };
+      const hc = c * 0.6, hs = span * 0.18, hRC = hc * 1.18, hTC = hc * 0.72, hy = ttail ? finY + fh - 0.02 : r * 0.15;
+      const hLE0 = ttail ? finLE(1) + 0.12 : zt + 0.55 + hRC / 2;
+      const Hs = { s: hs, c: e => hRC + (hTC - hRC) * e, le: e => hLE0 - 0.25 * (hRC - (hRC + (hTC - hRC) * e)) - e * hs * 0.08 };
+      // ── Peintures
+      const cabin = twin ? len / 2 - 1.3 * r : (high ? wingZ + 0.3 : len * 0.12);
+      const body = paintMat(paintCivilBody(ac, sec, ex, { cowl: twin ? null : len / 2 - 0.2, cabin, cabinMid: cabin, twin, len, z1: zn, glare: [len / 2 + 0.75 * r, zn - 0.5 * r], tailZ: finTE + finRC, wingTE: W.le(0) - W.c(0) }));
+      const wingM = paintMat(paintCivilWing(ac, W)), tailM = paintMat(paintCivilTail(ac, F, Hs));
+      const glass = envMat({ color: 0x1a2530, roughness: 0.04, metalness: 0.9, transparent: true, opacity: 0.55 }, 1.4);
+      K.add(loftGeo(sec, 32, ex), body);
+
+      // ── Verrière / cabine, cadres, intérieur (tableau de bord, sièges, pilote)
+      if (!twin) {
+        const cz0 = high ? wingZ - 0.35 * c : len * 0.12 - 1.55 * r, cz1 = high ? len / 2 - 0.25 : len * 0.12 + 1.75 * r;
+        const yb = r * (high ? 0.45 : 0.5), hp = high ? L.wingY - yb + 0.05 : r * 0.72, wc = r * 0.84;
+        const csec = smoothSec([[0, .35, .15], [.18, .8, .75], [.45, 1, 1], [.72, .97, .9], [1, .62, .12]].map(([t, a, b]) => [cz0 + (cz1 - cz0) * t, wc * a, hp * b, yb]), 3);
+        K.add(loftGeo(csec, 28, 2), glass);
+        const strip = (t, a0 = 0.255, a1 = 0.745) => { const z = cz0 + (cz1 - cz0) * t, q = secAt(csec, z); return loftGeo([[z - 0.03, q[1] * 1.02, q[2] * 1.02, yb], [z + 0.03, q[1] * 1.02, q[2] * 1.02, yb]], 20, 2, a0, a1); };
+        K.add(strip(0.74), trimB); K.add(strip(0.3), trimB);
+        K.add(loftGeo(csec.filter(q => q[0] >= cz0 + (cz1 - cz0) * 0.74).map(q => [q[0], q[1] * 1.02, q[2] * 1.02, yb]), 2, 2, 0.494, 0.506), trimB);
+        const zp = cz0 + (cz1 - cz0) * 0.42, px = ac.id === 'faucon' ? 0 : r * 0.3;
+        K.add(rbox(wc * 1.5, 0.24, 0.08, 0.03), A.panel, 0, yb + 0.08, cz0 + (cz1 - cz0) * 0.74, -0.35);
+        for (const x of ac.id === 'faucon' ? [0] : [px, -px]) {
+          K.add(rbox(0.46, 0.72, 0.1, 0.04), A.seat, x, yb + 0.12, zp - 0.36, -0.18);
+          K.add(rbox(0.46, 0.12, 0.45, 0.04), A.seat, x, yb - 0.22, zp - 0.12);
+        }
+        K.add(rbox(0.4, 0.42, 0.24, 0.08), A.shirt, px, yb + 0.02, zp - 0.18);
+        K.add(new THREE.SphereGeometry(0.115, 14, 10), A.skinTone, px, yb + 0.35, zp - 0.15);
+        K.add(new THREE.SphereGeometry(0.125, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), A.helmetDark, px, yb + 0.37, zp - 0.17);
+      } else {   // pare-brise du bimoteur : bande vitrée sur le nez, montants, deux pilotes
+        const ws = sec.filter(q => q[0] >= len / 2 - 0.35 * r && q[0] <= len / 2 + 0.75 * r).map(q => [q[0], q[1] * 1.012, q[2] * 1.012, q[3]]);
+        K.add(loftGeo(ws, 24, ex, 0.31, 0.69), glass);
+        for (const u of [0.31, 0.37, 0.5, 0.63, 0.69]) K.add(loftGeo(ws.map(q => [q[0], q[1] * 1.006, q[2] * 1.006, q[3]]), 1, ex, u - 0.006, u + 0.006), trimB);
+        for (const x of [r * 0.38, -r * 0.38]) {
+          K.add(rbox(0.4, 0.42, 0.24, 0.08), A.shirt, x, r * 0.1, len / 2 - 0.05 * r);
+          K.add(new THREE.SphereGeometry(0.115, 14, 10), A.skinTone, x, r * 0.45, len / 2);
+          K.add(new THREE.SphereGeometry(0.125, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), A.helmetDark, x, r * 0.47, len / 2 - 0.02 * r);
+        }
+        K.add(rbox(r * 1.3, 0.24, 0.08, 0.03), A.panel, 0, r * 0.25, len / 2 + 0.38 * r, -0.4);
+      }
+
+      // ── Aile, haubans, tube de Pitot, phare
+      const tip = buildWing(root, K, W, wingM);
+      if (high && !twin) for (const sd of [-1, 1]) rod(K, trimB, V3(sd * r * 0.72, -r * 0.42, wingZ), V3(sd * s * 0.58, L.wingY - 0.05, W.le(0.58) - W.c(0.58) * 0.35), 0.045, 0.4);
+      const pe = tip(0.55); rod(K, A.chrome, V3(pe.p.x, pe.p.y - 0.12, pe.p.z - 0.2), V3(pe.p.x, pe.p.y - 0.12, pe.p.z + 0.32), 0.016);
+      const le = tip(0.35); lens(K, A, le.p.x, le.p.y, le.p.z + 0.01, 0xfff6dc, 0.07);
+
+      // ── Dérive (gouverne de direction sur charnière), arête dorsale, stabilisateur (gouverne de profondeur)
+      const fst = e => ({ p: V3(0, finY + e * fh, finLE(e)), c: F.c(e), t: 0.12, u: e * 0.55, cd: NZ, td: AX });
+      const fr = 0.66, r0 = ttail ? 0.06 : 0.05, r1 = ttail ? 0.86 : 1;
+      K.add(foilGeo([fst(0), fst(1)], 0, fr - 0.012, 8), tailM);
+      K.add(foilGeo([fst(0), fst(r0 - 0.01)], fr, 1, 4), tailM);
+      if (r1 < 1) K.add(foilGeo([fst(r1 + 0.01), fst(1)], fr, 1, 4), tailM);
+      const rp = e => { const q = fst(e); return q.p.clone().addScaledVector(NZ, fr * q.c); };
+      const RH = hinge(root, rp(r0), rp(r1), 'y', 'rud'); RH.add(foilGeo([fst(r0), fst(r1)], fr, 1, 5), tailM); RH.done();
+      K.add(foilGeo([{ p: V3(0, finY - 0.05, finLE(0) + finRC * 0.9), c: finRC * 0.9 + 0.2, t: 0.07, u: 0.01, cd: NZ, td: AX },
+                     { p: V3(0, finY + fh * 0.3, finLE(0.3)), c: F.c(0.3) * 0.3, t: 0.2, u: 0.17, cd: NZ, td: AX }], 0, 1, 6), tailM);
+      const hst = (sd, e) => ({ p: V3(sd * e * hs, hy, Hs.le(e)), c: Hs.c(e), t: 0.11, u: 0.6 + 0.4 * (0.5 + sd * e / 2) });
+      const er = 0.62;
+      for (const sd of [-1, 1]) { K.add(foilGeo([hst(sd, 0), hst(sd, 1)], 0, er - 0.012, 8), tailM); K.add(foilGeo([hst(sd, 0.975), hst(sd, 1)], er, 1, 4), tailM); }
+      const ep = sd => { const q = hst(sd, 0.97); return q.p.clone().addScaledVector(NZ, er * q.c); };
+      const EH = hinge(root, ep(-1), ep(1), 'x', 'elev');
+      for (const sd of [-1, 1]) EH.add(foilGeo([hst(sd, 0), hst(sd, 0.97)], er, 1, 5), tailM);
+      EH.done();
+
+      // ── Moteur(s) et hélice(s) : cône d'hélice, pales vrillées à saumon jaune, disque flou quand elle tourne vite
+      const spin = envMat({ color: L.pin, roughness: 0.25, metalness: 0.35 }, 0.8);
+      const disc = new THREE.MeshBasicMaterial({ map: propDiscTex(), transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
+      const mkProp = (x, y, z, R, nb, rs) => {
+        const pg = new THREE.Group(); pg.position.set(x, y, z); pg.userData.part = 'prop'; root.add(pg);
+        const bl = new THREE.Group(); bl.userData.part = 'blades'; pg.add(bl);
+        const PK = kit(), bg = bladeGeo(R, rs), tg = bladeGeo(R, rs, true);
+        for (let i = 0; i < nb; i++) { PK.add(bg, A.blade, 0, 0, rs * 0.5, 0, 0, i * 2 * Math.PI / nb); PK.add(tg, A.tip, 0, 0, rs * 0.5, 0, 0, i * 2 * Math.PI / nb); }
+        PK.build(bl);
+        const SK = kit(); SK.add(spinnerGeo(rs, rs * 1.9), spin); SK.build(pg);
+        const d = new THREE.Mesh(new THREE.CircleGeometry(R, 48), disc); d.position.z = rs * 0.5; d.userData.part = 'disc'; pg.add(d);
+      };
+      if (!twin) {
+        mkProp(0, -0.1 * r, zn, 1.3, ac.id === 'faucon' ? 3 : 2, 0.42 * r);
+        for (const sd of [-1, 1]) K.add(rbox(0.17 * r, 0.13 * r, 0.04, 0.02), A.hole, sd * 0.5 * r, -0.05 * r, zn + 0.005);
+        K.add(rbox(0.36 * r, 0.12 * r, 0.32, 0.03), A.rubber, 0, -0.66 * r, zn - 0.3);
+        for (const dz of [0, 0.16]) rod(K, A.steel, V3(-0.42 * r, -0.55 * r, len / 2 + 0.25 + dz), V3(-0.47 * r, -0.78 * r, len / 2 + 0.05 + dz), 0.035);
+      } else for (const sd of [-1, 1]) {
+        const nx = sd * span * 0.27, ny = L.wingY - 0.15, nz1 = wingZ + c * 0.35 + 1.5;
+        const ns = smoothSec([[wingZ - c * 0.85, .1, .16, .22], [wingZ - c * .2, .4, .5, .1], [wingZ + c * .3, .5, .58, 0], [nz1 - .5, .47, .5, 0], [nz1, .36, .36, 0]], 3);
+        K.add(loftGeo(ns, 22, 2.2), trimA, nx, ny, 0);
+        mkProp(nx, ny, nz1, 1.35, 4, 0.33);
+        rod(K, A.steel, V3(nx + sd * 0.42, ny + 0.12, wingZ - 0.2), V3(nx + sd * 0.46, ny + 0.1, wingZ - 0.75), 0.08);
+        K.add(rbox(0.5, 0.18, 0.5, 0.05), A.rubber, nx, ny - 0.5, nz1 - 0.5);
+      }
+
+      // ── Antennes, feux (navigation rouge à gauche / vert à droite / blanc en queue, anticollision, flashs)
+      K.add(foilGeo([{ p: V3(0, topAt(len * -0.05) - 0.02, -len * 0.05 + 0.15), c: 0.32, t: 0.12, u: 0, cd: NZ, td: AX }, { p: V3(0, topAt(len * -0.05) + 0.3, -len * 0.05 - 0.05), c: 0.14, t: 0.12, u: 0, cd: NZ, td: AX }], 0, 1, 4), A.rubber);
+      rod(K, A.rubber, V3(0, secAt(sec, -len * 0.15)[3] - secAt(sec, -len * 0.15)[2] + 0.02, -len * 0.15), V3(0, secAt(sec, -len * 0.15)[3] - secAt(sec, -len * 0.15)[2] - 0.45, -len * 0.15 - 0.25), 0.012);
+      const tL = tip(1), tz = tL.p.z - 0.25 * tL.c, tailP = [0, secAt(sec, zt)[3], zt - 0.04];
+      lens(K, A, tL.p.x + 0.03, tL.p.y, tz, 0xff3030); lens(K, A, -tL.p.x - 0.03, tL.p.y, tz, 0x30ff60); lens(K, A, tailP[0], tailP[1], tailP[2], 0xffffff);
+      root.add(glowPts([[tL.p.x + 0.06, tL.p.y, tz, 0xff2a2a], [-tL.p.x - 0.06, tL.p.y, tz, 0x2aff5a], [tailP[0], tailP[1], tailP[2] - 0.05, 0xffffff]], 1.1));
+      root.add(glowPts([[tL.p.x + 0.06, tL.p.y + 0.02, tz - 0.25, 0xffffff], [-tL.p.x - 0.06, tL.p.y + 0.02, tz - 0.25, 0xffffff]], 2.6, 'strobe'));
+      const bcn = ttail ? [0, hy + 0.12, hLE0 - 0.3 * hRC] : [0, finY + fh + 0.06, finLE(1) - 0.35 * finTC];
+      lens(K, A, bcn[0], bcn[1], bcn[2], 0xff2020, 0.07);
+      root.add(glowPts([bcn.concat(0xff2020), [0, secAt(sec, 0)[3] - secAt(sec, 0)[2] - 0.05, 0, 0xff2020]], 1.6, 'beacon'));
+
+      // ── Train d'atterrissage (pivots animés pour la rentrée) : jambes, compas, fourches, trappes ou carénages
+      const mx = twin ? span * 0.27 : Math.max(1.3, r * 1.6);
+      const mainTop = twin ? L.wingY - 0.6 : (high ? -r * 0.6 : L.wingY - 0.1);
+      for (const [x, z, top, sd] of [[0, len * (twin ? 0.4 : 0.36), -r * 0.6, 0], [-mx, wingZ + 0.15, mainTop, -1], [mx, wingZ + 0.15, mainTop, 1]]) {
+        const piv = new THREE.Group(); piv.position.set(x, top, z); piv.userData.part = 'gear'; root.add(piv);
+        const GK = kit(); gearLeg(GK, A, top + 1.25, sd, !!ac.retract, trimB, ac.retract ? null : trimW); GK.build(piv);
+      }
+      return K.build(root);
+    }
+    // Disque d'hélice : voile radial, cercle jaune des saumons
+    let PROP_DISC = null;
+    function propDiscTex() {
+      if (PROP_DISC) return PROP_DISC;
+      const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+      const gr = g.createRadialGradient(64, 64, 8, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(40,40,40,0)'); gr.addColorStop(0.3, 'rgba(50,50,52,.55)'); gr.addColorStop(0.85, 'rgba(60,60,62,.4)'); gr.addColorStop(0.88, 'rgba(242,193,78,.7)'); gr.addColorStop(0.99, 'rgba(242,193,78,.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+      return PROP_DISC = new THREE.CanvasTexture(c);
+    }
+    // Modèles mis en cache par type (look) : chaque appel renvoie une copie qui partage géométries et matériaux
+    const PLANE_TPL = new Map();
+    const PART_LIST = { prop: 'props', blades: 'blades', disc: 'discs', gear: 'gear', strobe: 'strobes', flame: 'flames', pylon: 'pylons' };
+    function instancePlane(t) {
+      const g = t.clone(), P = { props: [], blades: [], discs: [], gear: [], ail: [], strobes: [], flames: [], pylons: [], rud2: null };
+      g.traverse(o => {
+        const p = o.userData.part; if (!p) return;
+        if (p === 'ail') P.ail.push({ piv: o, side: o.userData.side });
+        else if (p === 'rud2' || p === 'elev' || p === 'rud' || p === 'beacon') P[p] = o;
+        else if (PART_LIST[p]) P[PART_LIST[p]].push(o);
+      });
+      g.userData.parts = P; return g;
+    }
+    function createPlane(ac) {
+      if (!PLANE_TPL.has(ac.look)) PLANE_TPL.set(ac.look, buildCivil(ac));
+      return instancePlane(PLANE_TPL.get(ac.look));
     }
     function applyAircraftCamera() {
       const L = AC.look;
@@ -2830,9 +3361,14 @@
       P.elev.rotation.x = 0.4 * S.ctl.p;
       P.rud.rotation.y = -0.45 * S.ctl.y;
       P.gear.forEach(p => { p.rotation.x = -(1 - S.gearPos) * Math.PI / 2; p.visible = S.gearPos > 0.04; });
-      const spin = (S.throttle * 45 + S.speed * 0.3) * dt;
-      P.props.forEach((p, i) => p.rotation.z += i % 2 ? -spin : spin);
+      const w = S.crashed ? 0 : S.throttle * 45 + S.speed * 0.3;
+      P.props.forEach((p, i) => p.rotation.z += (i % 2 ? -w : w) * dt);
+      // Hélice rapide : les pales laissent place au disque flou
+      const blur = clamp((w - 12) / 20, 0, 1);
+      P.blades.forEach(b => b.visible = blur < 0.85);
+      P.discs.forEach(d => d.material.opacity = 0.12 + 0.5 * blur);
       P.beacon.visible = (t % 1.2) < 0.12;
+      const st = t % 1.3; P.strobes.forEach(s => s.visible = st < 0.05 || (st > 0.14 && st < 0.19));
     }
 
     function createTruck() {
@@ -4767,9 +5303,18 @@
 
       // ════════════════════════ Géométries partagées ════════════════════════
       const H90 = Math.PI / 2;
-      const MIS_GEO = (() => { const g = new THREE.CylinderGeometry(0.12, 0.12, 2.6, 8); g.rotateX(H90); return g; })();
-      const MIS_MAT = new THREE.MeshStandardMaterial({ color: 0xdfe3e8, roughness: 0.4, metalness: 0.4 });
-      const MIS_E_MAT = new THREE.MeshStandardMaterial({ color: 0x8a2a2a, roughness: 0.4, metalness: 0.4 });
+      // Missile détaillé (corps, radôme, bagues, ailettes et canards) en couleurs par sommet : une géométrie, un matériau
+      const MIS_GEO = (() => {
+        const tube = (r, l, z, hex) => colorize(new THREE.CylinderGeometry(r, r, l, 12).rotateX(H90).translate(0, 0, z), hex);
+        const parts = [tube(0.12, 2.05, -0.24, 0xffffff), colorize(new THREE.ConeGeometry(0.12, 0.5, 12).rotateX(H90).translate(0, 0, 1.03), 0x8d949b), tube(0.124, 0.08, 0.45, 0xf2c14e), tube(0.124, 0.05, 0.6, 0x8a5a2a)];
+        for (let k = 0; k < 4; k++) {
+          parts.push(colorize(new THREE.BoxGeometry(0.02, 0.36, 0.34).translate(0, 0.27, -1.07).rotateZ(k * H90 + Math.PI / 4), 0xffffff));
+          parts.push(colorize(new THREE.BoxGeometry(0.015, 0.22, 0.16).translate(0, 0.2, 0.68).rotateZ(k * H90 + Math.PI / 4), 0xffffff));
+        }
+        return (BGU && BGU.mergeBufferGeometries(parts)) || parts[0];
+      })();
+      const MIS_MAT = envMat({ color: 0xe6e9ec, roughness: 0.38, metalness: 0.3, vertexColors: true }, 0.6);
+      const MIS_E_MAT = envMat({ color: 0xb04848, roughness: 0.38, metalness: 0.3, vertexColors: true }, 0.6);
       const TR_GEO = new THREE.BoxGeometry(0.14, 0.14, 7);
       const TR_P = new THREE.MeshBasicMaterial({ color: 0xffe27a });
       const TR_E = new THREE.MeshBasicMaterial({ color: 0xff5a4a });
@@ -4785,18 +5330,6 @@
       const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _g = V(), _h = V(), _i = V(), _cen = V(), _s1 = V(), _s2 = V(), _o1 = V(), _o2 = V(), _p = V(), _l = V();
       const _m4 = new THREE.Matrix4(), _eul = new THREE.Euler();
 
-      function wingGeo(s, rf, rb, tf, tb, th = 0.18) {
-        const sh = new THREE.Shape();
-        sh.moveTo(0, rf); sh.lineTo(s, tf); sh.lineTo(s, tb); sh.lineTo(0, rb); sh.lineTo(-s, tb); sh.lineTo(-s, tf); sh.closePath();
-        const g = new THREE.ExtrudeGeometry(sh, { depth: th, bevelEnabled: false });
-        g.rotateX(H90); g.translate(0, th / 2, 0); return g;
-      }
-      function finGeo(f0, f1, t0, t1, h, th = 0.14) {
-        const sh = new THREE.Shape();
-        sh.moveTo(f0, 0); sh.lineTo(t0, h); sh.lineTo(t1, h); sh.lineTo(f1, 0); sh.closePath();
-        const g = new THREE.ExtrudeGeometry(sh, { depth: th, bevelEnabled: false });
-        g.rotateY(-H90); g.translate(th / 2, 0, 0); return g;
-      }
       function flame(rad, h) {
         const grp = new THREE.Group();
         const g1 = new THREE.ConeGeometry(rad, h, 14, 1, true); g1.translate(0, h / 2, 0);
@@ -4805,84 +5338,242 @@
         grp.rotation.x = -H90; return grp;
       }
 
-      // ════════════════════════ Modèle 3D des jets ════════════════════════
-      function createJet(ac, hostile) {
-        const L = ac.look, g = new THREE.Group(), P = { props: [], gear: [], ail: [], flames: [], pylons: [], rud2: null };
-        const body = new THREE.MeshStandardMaterial({ map: makeLivery(L.body, L.stripe, L.pin), roughness: 0.4, metalness: 0.35 });
-        const skin = new THREE.MeshStandardMaterial({ color: L.wing, roughness: 0.45, metalness: 0.3, flatShading: true, side: THREE.DoubleSide });
-        const accent = new THREE.MeshStandardMaterial({ color: L.stripe, roughness: 0.5, metalness: 0.3, flatShading: true, side: THREE.DoubleSide });
-        const glass = new THREE.MeshStandardMaterial({ color: hostile ? 0x401010 : 0xc9a24a, roughness: 0.05, metalness: 0.85, transparent: true, opacity: 0.85 });
-        const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); parent.add(m); return m; };
-        const len = L.len, r = L.r, s = L.span / 2;
-
-        add(new THREE.CylinderGeometry(r, r * 0.8, len * 0.7, 16), body, 0, 0, -len * 0.05, H90);
-        add(new THREE.ConeGeometry(r, len * 0.3, 16), body, 0, 0, len * 0.45, H90);
-        add(new THREE.CylinderGeometry(0.03, 0.03, 1.2, 6), DARKM, 0, 0, len * 0.63, H90);
-        const cn = add(new THREE.SphereGeometry(1, 18, 12), glass, 0, r * 0.7, len * 0.22); cn.scale.set(r * 0.62, r * 0.6, r * 1.7);
-        for (const sx of [-1, 1]) add(new THREE.BoxGeometry(r * 0.55, r * 0.9, len * 0.28), DARKM, sx * r * 1.0, -r * 0.15, len * 0.02);
-
-        const nozzles = L.pods ? [[-1.5, r * 0.75, -len * 0.28], [1.5, r * 0.75, -len * 0.28]] : [[0, 0, -len * 0.4]];
-        for (const [nx, ny, nz] of nozzles) {
-          if (L.pods) add(new THREE.CylinderGeometry(0.75, 0.7, len * 0.3, 14), skin, nx, ny, nz + len * 0.15, H90);
-          add(new THREE.CylinderGeometry(r * 0.72, r * 0.62, len * 0.08, 14), DARKM, nx, ny, nz, H90);
-          const fl = flame(r * 0.6, len * 0.35); fl.position.set(nx, ny, nz - len * 0.04); g.add(fl); P.flames.push(fl);
+      // ════════════════════════ Peintures militaires ════════════════════════
+      // Schémas : gris bicolore (Épervier), camouflage (Harfang, Titan), hostile (sombre à marques rouges)
+      const SCHEME = { epervier: 'gray', harfang: 'camo', titan: 'camo' };
+      const SERIAL = { epervier: ['EP', '117'], harfang: ['HF', '204'], titan: ['TN', '331'] };
+      const tone = (col, k) => { const c = new THREE.Color(col); if (k > 0) c.lerp(new THREE.Color(1, 1, 1), k); else c.multiplyScalar(1 + k); return css(c); };
+      // Taches arrondies (courbes passant par les milieux d'un polygone irrégulier), tirage déterministe
+      function camo(g, rng, x0, y0, w, h, cols, n, size, sx = 1.6) {
+        for (let i = 0; i < n; i++) {
+          const cx = x0 + rng() * w, cy = y0 + rng() * h, R = size * (0.6 + rng()), k = 7 + Math.floor(rng() * 4), pts = [];
+          for (let j = 0; j < k; j++) { const a = j / k * Math.PI * 2, rr = R * (0.55 + rng() * 0.6); pts.push([cx + Math.cos(a) * rr * sx, cy + Math.sin(a) * rr]); }
+          const mid = j => { const p = pts[j % k], q = pts[(j + 1) % k]; return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; };
+          g.fillStyle = cols[i % cols.length]; g.beginPath(); g.moveTo(...mid(0));
+          for (let j = 1; j <= k; j++) { const p = pts[j % k], m = mid(j); g.quadraticCurveTo(p[0], p[1], m[0], m[1]); }
+          g.fill();
         }
+      }
+      function insignia(c, sch, R) {
+        if (sch === 'hostile') { roundel(c, R, ['#111214']); c.fillStyle = '#c0262b'; c.beginPath(); c.moveTo(0, -R * 0.7); c.lineTo(R * 0.62, R * 0.4); c.lineTo(-R * 0.62, R * 0.4); c.closePath(); c.fill(); }
+        else roundel(c, R, sch === 'gray' ? ['#4f5964', '#a3acb6', '#6e7782'] : ['#1f3a8a', '#f4f4f4', '#c8372d']);
+      }
+      function paintJetBody(ac, hostile, sec, ex, o) {
+        const L = ac.look, sch = hostile ? 'hostile' : SCHEME[ac.id] || 'gray', rng = mulberry32(o.seed), len = o.len;
+        return skinTex(512, 512, (g, b, w, h) => {
+          const F = bodyFrame(sec, ex, w, h), { Y, side } = F;
+          g.fillStyle = L.body; g.fillRect(0, 0, w, h);
+          if (sch === 'camo') camo(g, rng, -40, -40, w + 80, h + 80, [L.stripe, tone(L.body, 0.16)], 34, 26);
+          if (sch === 'gray') camo(g, rng, -40, -40, w + 80, h + 80, [tone(L.body, -0.12)], 12, 44);
+          if (sch !== 'camo') {   // ventre plus clair (contre-ombrage)
+            const gr = g.createLinearGradient(0, 0, w, 0);
+            gr.addColorStop(0, 'rgba(255,255,255,.2)'); gr.addColorStop(0.18, 'rgba(255,255,255,0)'); gr.addColorStop(0.82, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(255,255,255,.2)');
+            g.fillStyle = gr; g.fillRect(0, 0, w, h);
+          }
+          if (sch === 'hostile') { g.fillStyle = L.stripe; g.fillRect(w * 0.47, Y(len * 0.42), w * 0.06, Y(-len * 0.4) - Y(len * 0.42)); g.fillRect(0, Y(len * 0.47) - 1, w, 7); }
+          g.fillStyle = hostile ? '#17181b' : tone(L.body, -0.32); g.fillRect(0, 0, w, Y(len * 0.47));                       // radôme
+          g.fillStyle = 'rgba(26,28,32,.88)'; g.fillRect(w * 0.42, Y(len * 0.47), w * 0.16, Y(o.cz1 - 0.1) - Y(len * 0.47));   // antireflet
+          for (const sd of [1, -1]) {
+            side(g, sd, -len * 0.26, 0.15, c => insignia(c, sch, 0.36));
+            if (!hostile && SERIAL[ac.id]) side(g, sd, len * 0.35, -0.15, c => mText(c, SERIAL[ac.id].join('-'), 0.22, sch === 'camo' ? '#1d211b' : '#2c333b'));
+            side(g, sd, o.cz0 - 0.15, 0.45, c => {   // triangle « danger » du siège éjectable
+              c.fillStyle = '#f2f2f2'; c.beginPath(); c.moveTo(0, -0.11); c.lineTo(0.12, 0.1); c.lineTo(-0.12, 0.1); c.closePath(); c.fill();
+              c.fillStyle = '#c8372d'; c.beginPath(); c.moveTo(0, -0.07); c.lineTo(0.085, 0.075); c.lineTo(-0.085, 0.075); c.closePath(); c.fill();
+            });
+          }
+          // Cadres, lisses, trappes de visite, rivets
+          for (let z = F.z0 + 0.4; z < F.z1 - 0.3; z += 0.62) seam(g, b, 0, Y(z), w, Y(z), 4);
+          for (const u of [0.2, 0.36, 0.5, 0.64, 0.8]) seam(g, b, u * w, Y(len * 0.47), u * w, h);
+          for (let i = 0; i < 30; i++) {
+            const x = rng() * w, y = Y(len * 0.45) + rng() * (h - Y(len * 0.45)), a = 6 + rng() * 18, c2 = 6 + rng() * 22;
+            seam(g, b, x, y, x + a, y, 3); seam(g, b, x + a, y, x + a, y + c2, 3); seam(g, b, x + a, y + c2, x, y + c2, 3); seam(g, b, x, y + c2, x, y, 3);
+          }
+          const sg = g.createLinearGradient(0, Y(-len * 0.3), 0, h);   // suie autour de la tuyère
+          sg.addColorStop(0, 'rgba(25,22,20,0)'); sg.addColorStop(1, 'rgba(25,22,20,.6)');
+          g.fillStyle = sg; g.fillRect(0, Y(-len * 0.3), w, h - Y(-len * 0.3));
+          noise(g, w, 7);
+        });
+      }
+      function paintJetWing(ac, hostile, W, seed) {
+        const L = ac.look, sch = hostile ? 'hostile' : SCHEME[ac.id] || 'gray', rng = mulberry32(seed);
+        return skinTex(512, 256, (g, b, w, h) => {
+          const X = x => (0.5 + x / (2 * W.s)) * w, kx = w / (2 * W.s), kc = x => (h / 2) / W.c(Math.abs(x) / W.s);
+          g.fillStyle = css(L.wing); g.fillRect(0, 0, w, h);
+          if (sch === 'camo') camo(g, rng, -30, -30, w + 60, h + 60, [L.stripe, tone(L.wing, 0.16)], 22, 18, 2.2);
+          if (sch === 'gray') { camo(g, rng, -30, -30, w + 60, h / 2 + 30, [tone(L.wing, -0.12)], 8, 30, 2.2); g.fillStyle = 'rgba(255,255,255,.16)'; g.fillRect(0, h / 2, w, h / 2); }
+          if (sch === 'hostile') { g.fillStyle = L.stripe; g.fillRect(0, 0, X(-W.s + 0.6), h); g.fillRect(X(W.s - 0.6), 0, w, h); }
+          g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, upperY(0.035, h), w, lowerY(0.035, h) - upperY(0.035, h));   // bord d'attaque
+          for (const f of [0.15, 0.5, W.fh]) for (const Yf of [upperY, lowerY]) seam(g, b, 0, Yf(f, h), w, Yf(f, h), f === W.fh ? 0 : 3);
+          for (let x = -W.s; x <= W.s; x += 0.45) seam(g, b, X(x), upperY(0.98, h), X(x), lowerY(0.98, h), 3);
+          for (let i = 0; i < 16; i++) { const x = rng() * w, y = h / 2 + rng() * h * 0.4, a = 8 + rng() * 16, c2 = 5 + rng() * 10; seam(g, b, x, y, x + a, y); seam(g, b, x + a, y, x + a, y + c2); seam(g, b, x + a, y + c2, x, y + c2); seam(g, b, x, y + c2, x, y); }
+          // Cocardes : extrados gauche, intrados droit
+          const xr = W.s * 0.62, R = Math.min(0.45, W.c(0.62) * 0.3);
+          g.save(); g.translate(X(xr), upperY(0.42, h)); g.transform(-kx, 0, 0, -kc(xr), 0, 0); insignia(g, sch, R); g.restore();
+          g.save(); g.translate(X(-xr), lowerY(0.42, h)); g.transform(kx, 0, 0, kc(xr), 0, 0); insignia(g, sch, R); g.restore();
+          if (!ac.look.delta) for (const sd of [1, -1]) {   // passerelle (liseré noir) à l'emplanture
+            const xa = X(sd * W.s * W.flap[0]), xb = X(sd * (W.s * W.flap[0] + 0.6));
+            g.strokeStyle = 'rgba(15,15,15,.8)'; g.lineWidth = 0.8; g.strokeRect(Math.min(xa, xb), upperY(0.55, h), Math.abs(xb - xa), upperY(0.08, h) - upperY(0.55, h));
+          }
+          noise(g, w, 7);
+        });
+      }
+      function paintJetTail(ac, hostile, F, seed) {
+        const L = ac.look, sch = hostile ? 'hostile' : SCHEME[ac.id] || 'gray', rng = mulberry32(seed);
+        return skinTex(512, 256, (g, b, w, h) => {
+          const XF = e => e * 0.55 * w, kh = 0.55 * w / F.h, kc = e => (h / 2) / F.c(e);
+          g.fillStyle = L.body; g.fillRect(0, 0, w, h);
+          if (sch === 'camo') camo(g, rng, -30, -30, w + 60, h + 60, [L.stripe, tone(L.body, 0.16)], 18, 16, 1.4);
+          if (sch === 'gray') camo(g, rng, -30, -30, w + 60, h + 60, [tone(L.body, -0.12)], 6, 26, 1.4);
+          for (const Yf of [upperY, lowerY]) {
+            if (sch === 'hostile') { g.fillStyle = L.stripe; g.fillRect(XF(0.8), Yf(0, h) - (Yf === upperY ? h / 2 : 0), XF(1) - XF(0.8), h / 2); }
+            if (L.pin === '#ffd34d') for (let i = 0; i < 3; i++) { g.fillStyle = L.pin; g.beginPath(); g.moveTo(XF(0.2 + i * 0.22), Yf(0.05, h)); g.lineTo(XF(0.3 + i * 0.22), Yf(0.9, h)); g.lineTo(XF(0.34 + i * 0.22), Yf(0.9, h)); g.lineTo(XF(0.24 + i * 0.22), Yf(0.05, h)); g.fill(); }
+            const lbl = (e, f, fn) => { g.save(); g.translate(XF(e), Yf(f, h)); g.transform(0, -kc(e), -kh, 0, 0, 0); fn(g); g.restore(); };
+            if (!hostile && SERIAL[ac.id]) {
+              lbl(0.5, 0.45, c => mText(c, SERIAL[ac.id][1], Math.min(0.42, F.h * 0.16), sch === 'camo' ? '#1d211b' : '#353d47'));
+              lbl(0.78, 0.4, c => {   // insigne d'escadron : bouclier et rapace stylisé
+                const R = Math.min(0.26, F.c(0.78) * 0.2); roundel(c, R, [L.pin, L.stripe]);
+                c.fillStyle = '#f2f2f2'; c.beginPath(); c.moveTo(0, -R * 0.55); c.lineTo(R * 0.7, R * 0.15); c.lineTo(0, R * 0.05); c.lineTo(-R * 0.7, R * 0.15); c.closePath(); c.fill();
+              });
+            } else lbl(0.5, 0.45, c => insignia(c, 'hostile', Math.min(0.3, F.c(0.5) * 0.22)));
+            seam(g, b, 0, Yf(0.72, h), XF(1), Yf(0.72, h));
+            for (let e = 0.12; e < 1; e += 0.18) seam(g, b, XF(e), Yf(0, h), XF(e), Yf(0.98, h), 3);
+            for (const f of [0.2, 0.55]) seam(g, b, w * 0.6, Yf(f, h), w, Yf(f, h), 3);
+          }
+          noise(g, w, 7);
+        });
+      }
 
+      // ════════════════════════ Modèle 3D des jets ════════════════════════
+      function buildJet(ac, hostile) {
+        const L = ac.look, A = airMats(), root = new THREE.Group(), K = kit();
+        const len = L.len, r = L.r, s = L.span / 2, wy = L.wingY, ex = 2.5;
+        const seed = [...(ac.id || L.body + (hostile ? 'h' : ''))].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 7);
+        // Fuselage : pointe avant à 0,6·len, tuyère à −0,42·len (mêmes cotes que l'ancien modèle)
+        const sec = smoothSec([[-.42, .66, .66, 0], [-.3, .95, .84, .02], [-.1, 1.08, .9, .05], [.05, 1, .9, .08], [.18, .74, .86, .16], [.3, .56, .64, .06], [.42, .38, .42, -.02], [.52, .2, .22, -.05], [.6, 0, 0, -.06]]
+          .map(([z, a, b, y]) => [z * len, a * r, b * r, y * r]), 4);
+        const topAt = z => { const q = secAt(sec, z); return q[3] + q[2]; };
         let rf, rb, tf, tb;
         if (L.delta) { rf = len * 0.12; rb = -len * 0.38; tf = -len * 0.3; tb = -len * 0.38; }
         else if (L.straight) { rf = len * 0.04; rb = -len * 0.12; tf = len * 0.01; tb = -len * 0.09; }
         else { rf = len * 0.06; rb = -len * 0.3; tf = -len * 0.2; tb = -len * 0.29; }
-        add(wingGeo(s, rf, rb, tf, tb), skin, 0, L.wingY, 0);
-        const frac = 0.72, teZ = rb + (tb - rb) * frac, chordAt = Math.max(0.8, (rf + (tf - rf) * frac) - teZ);
-        for (const side of [-1, 1]) {
-          const piv = new THREE.Group(); piv.position.set(side * s * frac, L.wingY, teZ); g.add(piv);
-          add(new THREE.BoxGeometry(s * 0.4, 0.1, chordAt * 0.3), accent, 0, 0, -chordAt * 0.15, 0, 0, 0, piv);
-          P.ail.push({ piv, side });
-        }
-        add(new THREE.BoxGeometry(0.25, 0.25, 0.4), new THREE.MeshBasicMaterial({ color: 0xff3030 }), s + 0.05, L.wingY, (tf + tb) / 2);
-        add(new THREE.BoxGeometry(0.25, 0.25, 0.4), new THREE.MeshBasicMaterial({ color: 0x30ff60 }), -s - 0.05, L.wingY, (tf + tb) / 2);
+        const W = {
+          s, y: wy, dih: L.straight ? 0.02 : -0.03, le: e => rf + (tf - rf) * e, c: e => (rf + (tf - rf) * e) - (rb + (tb - rb) * e),
+          t0: L.straight ? 0.12 : 0.055, t1: L.straight ? 0.1 : 0.04, fh: 0.74, flap: [r * 1.05 / s, L.delta ? 0.28 : 0.43], ail: L.delta ? [0.3, 0.88] : [0.45, 0.9], u: x => 0.5 + x / (2 * s)
+        };
+        const fh = 1.6 + r, f0 = -len * 0.16, f1 = -len * 0.44, t0 = -len * 0.36, t1 = -len * 0.47;
+        const F = { h: fh, c: e => (f0 - f1) + ((t0 - t1) - (f0 - f1)) * e };
+        const cz = len * 0.22, cz0 = cz - 1.75 * r, cz1 = cz + 1.65 * r;
+        const body = paintMat(paintJetBody(ac, hostile, sec, ex, { len, cz0, cz1, seed }), true);
+        const wingM = paintMat(paintJetWing(ac, hostile, W, seed + 1), true), tailM = paintMat(paintJetTail(ac, hostile, F, seed + 2), true);
+        const trimB = trimMat(L.body, true), trimW = trimMat(L.wing, true);
+        K.add(loftGeo(sec, 32, ex), body);
 
+        // Entrées d'air latérales (lèvre, conduit sombre, fond) ou réacteurs en nacelles (Titan)
+        if (!L.pods) for (const sd of [-1, 1]) {
+          const ix = sd * r * 1.12, iy = -r * 0.14, zf = len * 0.15, zb = -len * 0.16;
+          const is = smoothSec([[zb, .1, .3, 0], [zb + (zf - zb) * .5, .32, .46, 0], [zf - .4, .34, .48, 0], [zf, .32, .46, 0]].map(([z, a, b2, y]) => [z, a * r, b2 * r, y]), 3);
+          const q = is[is.length - 1];
+          K.add(loftGeo(is, 20, 4, 0, 1, false), trimB, ix, iy, 0);
+          K.add(loftGeo(is.filter(p => p[0] >= zf - 1.0).map(p => [p[0], p[1] * 0.86, p[2] * 0.9, 0]), 20, 4, 0, 1, false), A.soot, ix, iy, 0);
+          K.add(loftGeo([[zf, q[1], q[2], 0], [zf, q[1] * 0.86, q[2] * 0.9, 0]], 20, 4, 0, 1, false), A.rubber, ix, iy, 0);
+          K.add(new THREE.CircleGeometry(1, 20), A.hole, ix, iy, zf - 0.95, 0, 0, 0, q[1] * 0.86, q[2] * 0.9, 1);
+        }
+        if (L.pods) for (const sd of [-1, 1]) {
+          const px = sd * 1.5, py = r * 0.75, z0 = -len * 0.43, z1 = -len * 0.13;
+          K.add(loftGeo(smoothSec([[z0, .5, .5, 0], [z0 + .5, .62, .62, 0], [z1 - .9, .74, .74, 0], [z1, .7, .7, 0]], 3), 22, 2, 0, 1, false), trimW, px, py, 0);
+          K.add(loftGeo([[z1, .7, .7, 0], [z1, .58, .58, 0]], 22, 2, 0, 1, false), A.rubber, px, py, 0);
+          K.add(new THREE.CircleGeometry(0.6, 22), A.steel, px, py, z1 - 0.3);
+          K.add(new THREE.ConeGeometry(0.16, 0.3, 12), A.rubber, px, py, z1 - 0.15, H90);
+          K.add(foilGeo([{ p: V3(sd * 0.45 * r, r * 0.55, z1 - 0.6), c: 2.4, t: 0.1, u: 0.5, cd: NZ, td: AX }, { p: V3(px - sd * 0.1, py - 0.45, z1 - 0.8), c: 2.0, t: 0.1, u: 0.5, cd: NZ, td: AX }], 0, 1, 6), trimB);
+        }
+        // Tuyères à volets (métal), conduit sombre, turbine, flamme de postcombustion
+        const noz = L.pods ? [[-1.5, r * 0.75, -len * 0.43, 0.5], [1.5, r * 0.75, -len * 0.43, 0.5]] : [[0, 0, -len * 0.42, r * 0.66]];
+        for (const [nx, ny, nz, rr] of noz) {
+          const nl = len * 0.075;
+          K.add(new THREE.CylinderGeometry(rr, rr * 0.86, nl, 20, 1, true), A.nozzle, nx, ny, nz - nl / 2, H90);
+          K.add(new THREE.CylinderGeometry(rr * 0.82, rr * 0.8, nl * 0.95, 20, 1, true), A.soot, nx, ny, nz - nl / 2, H90);
+          K.add(new THREE.CircleGeometry(rr * 0.82, 20), A.steel, nx, ny, nz - 0.05, 0, Math.PI, 0);
+          K.add(new THREE.ConeGeometry(rr * 0.3, rr * 0.7, 12), A.steel, nx, ny, nz - 0.05 - rr * 0.35, -H90);
+          const fl = flame(rr * 0.9, len * 0.35); fl.position.set(nx, ny, nz - nl); fl.userData.part = 'flame'; root.add(fl);
+        }
+
+        // Verrière (verre doré), rails et arceau, siège éjectable, pilote, viseur tête haute
+        const yb = r * 0.6, hp = r * 0.68, wc = r * 0.6;
+        const csec = smoothSec([[0, .4, .25], [.2, .9, .85], [.45, 1, 1], [.7, .9, .82], [1, .4, .1]].map(([t, a, b2]) => [cz0 + (cz1 - cz0) * t, wc * a, hp * b2, yb]), 3);
+        const glass = envMat({ color: hostile ? 0x3a1414 : 0x8a6a2a, roughness: 0.04, metalness: 0.95, transparent: true, opacity: 0.5 }, 1.5);
+        K.add(loftGeo(csec, 28, 2), glass);
+        const cs = csec.map(q => [q[0], q[1] * 1.015, q[2] * 1.015, yb]), zw = cz0 + (cz1 - cz0) * 0.74, qw = secAt(cs, zw);
+        K.add(loftGeo(cs, 2, 2, 0.255, 0.268), A.frame); K.add(loftGeo(cs, 2, 2, 0.732, 0.745), A.frame);
+        K.add(loftGeo([[zw - 0.035, qw[1], qw[2], yb], [zw + 0.035, qw[1], qw[2], yb]], 20, 2, 0.255, 0.745), A.frame);
+        const zp = cz0 + (cz1 - cz0) * 0.45;
+        K.add(rbox(0.5, 0.95, 0.32, 0.05), A.seat, 0, yb + 0.05, zp - 0.42, -0.15);
+        K.add(rbox(0.42, 0.45, 0.28, 0.08), A.suit, 0, yb, zp - 0.16);
+        K.add(new THREE.SphereGeometry(0.14, 16, 12), hostile ? A.helmetDark : A.helmet, 0, yb + 0.33, zp - 0.12);
+        K.add(new THREE.SphereGeometry(0.146, 16, 8, H90 - 0.9, 1.8, 1.0, 0.75), glass, 0, yb + 0.33, zp - 0.12);
+        K.add(rbox(wc * 1.5, 0.16, 0.5, 0.04), A.frame, 0, yb + 0.02, cz0 + (cz1 - cz0) * 0.72);
+        K.add(new THREE.PlaneGeometry(0.2, 0.16), glass, 0, yb + 0.2, cz0 + (cz1 - cz0) * 0.68, -0.3);
+
+        // Aile, apex de bord d'attaque, pylônes et missiles (P.pylons)
+        const tip = buildWing(root, K, W, wingM, 0);
+        if (!L.delta && !L.straight) for (const sd of [-1, 1]) {
+          const x0 = r * 0.85, x1 = r * 0.85 + 0.8, e1 = x1 / s;
+          K.add(foilGeo([{ p: V3(sd * x0, wy, rf + len * 0.2), c: len * 0.2 + W.c(x0 / s) * 0.3, t: 0.03, u: W.u(sd * x0) }, { p: V3(sd * x1, wy, W.le(e1)), c: W.c(e1) * 0.5, t: 0.04, u: W.u(sd * x1) }], 0, 1, 6), wingM);
+        }
         const nMis = ac.mil ? ac.mil.missiles : 2;
         for (let i = 0; i < nMis; i++) {
           const side = i % 2 ? 1 : -1, k = Math.floor(i / 2) + 1, px = side * (s * 0.25 * k + 0.3);
           if (Math.abs(px) > s * 0.95) continue;
-          const zc = rf + (tf - rf) * (Math.abs(px) / s) - 1.0;
-          const m = new THREE.Mesh(MIS_GEO, hostile ? MIS_E_MAT : MIS_MAT); m.position.set(px, L.wingY - 0.28, zc);
-          g.add(m); P.pylons.push(m);
+          const e = Math.abs(px) / s, zc = rf + (tf - rf) * e - 1.0, wyl = wy + e * s * W.dih;
+          K.add(foilGeo([{ p: V3(px, wyl - 0.01, zc + 1.05), c: 1.5, t: 0.09, u: 0.5, cd: NZ, td: AX }, { p: V3(px, wyl - 0.17, zc + 0.85), c: 1.2, t: 0.09, u: 0.5, cd: NZ, td: AX }], 0, 1, 5), trimW);
+          const m = new THREE.Mesh(MIS_GEO, hostile ? MIS_E_MAT : MIS_MAT); m.position.set(px, wyl - 0.28, zc); m.castShadow = true;
+          m.userData.part = 'pylon'; root.add(m);
         }
-
+        // Canards (delta) ou stabilisateurs monoblocs : pièce P.elev
         if (L.delta) {
-          const cg = new THREE.Group(); cg.position.set(0, r * 0.25, len * 0.28); g.add(cg);
-          add(wingGeo(r + 1.4, 0.6, -0.5, -0.2, -0.6, 0.1), accent, 0, 0, 0, 0, 0, 0, cg);
-          P.elev = cg;
+          const cg = new THREE.Group(); cg.position.set(0, r * 0.25, len * 0.28); cg.userData.part = 'elev'; root.add(cg);
+          const CK = kit(), cs2 = r + 1.4;
+          for (const sd of [-1, 1]) CK.add(foilGeo([{ p: V3(0, 0, 0.6), c: 1.1, t: 0.05, u: 0.5 }, { p: V3(sd * cs2, 0, -0.2), c: 0.4, t: 0.04, u: 0.5 + sd * cs2 / (2 * s) }], 0, 1, 6), wingM);
+          CK.build(cg);
         } else {
-          const hg = new THREE.Group(); hg.position.set(0, 0.05, -len * 0.4); g.add(hg);
-          add(wingGeo(s * 0.45, 0.5, -1.1, -0.9, -1.5, 0.1), skin, 0, 0, 0, 0, 0, 0, hg);
-          P.elev = hg;
+          const hg = new THREE.Group(); hg.position.set(0, 0.05, -len * 0.4); hg.userData.part = 'elev'; root.add(hg);
+          const HK = kit(), hs = s * 0.45;
+          for (const sd of [-1, 1]) HK.add(foilGeo([{ p: V3(0, 0, 0.5), c: 1.6, t: 0.05, u: 0.8 }, { p: V3(sd * hs, 0, -0.9), c: 0.6, t: 0.04, u: 0.8 + sd * 0.2 }], 0, 1, 6), tailM);
+          HK.build(hg);
         }
-        const fh = 1.6 + r, f0 = -len * 0.16, f1 = -len * 0.44, t0 = -len * 0.36, t1 = -len * 0.47;
+        // Dérive(s) avec gouverne de direction sur charnière (P.rud, P.rud2)
         const fins = L.twinTail ? [[-r * 0.75, 0.22], [r * 0.75, -0.22]] : [[0, 0]];
+        let bcn = null;
         fins.forEach(([fx, tilt], i) => {
-          const fg = new THREE.Group(); fg.position.set(fx, r * 0.35, 0); fg.rotation.z = tilt; g.add(fg);
-          add(finGeo(f0, f1, t0, t1, fh), skin, 0, 0, 0, 0, 0, 0, fg);
-          const rud = new THREE.Group(); rud.position.set(0, fh * 0.45, f1 + (t1 - f1) * 0.45); fg.add(rud);
-          add(new THREE.BoxGeometry(0.1, fh * 0.5, 0.7), accent, 0, 0, -0.35, 0, 0, 0, rud);
-          if (i === 0) P.rud = rud; else P.rud2 = rud;
+          const M = new THREE.Matrix4().makeRotationZ(tilt).setPosition(fx, r * 0.35, 0);
+          const fst = e => ({ p: V3(0, e * fh, f0 + (t0 - f0) * e), c: F.c(e), t: 0.05, u: e * 0.55, cd: NZ, td: AX });
+          const fr = 0.72, e0 = 0.15, e1 = 0.78;
+          for (const [a, b2, fa, fb] of [[0, 1, 0, fr - 0.012], [0, e0 - 0.01, fr, 1], [e1 + 0.01, 1, fr, 1]]) K.addM(foilGeo([fst(a), fst(b2)], fa, fb, 8), tailM, M);
+          const hp2 = e => { const q = fst(e); return q.p.clone().addScaledVector(NZ, fr * q.c).applyMatrix4(M); };
+          const RH = hinge(root, hp2(e0), hp2(e1), 'y', i ? 'rud2' : 'rud');
+          RH.add(foilGeo([fst(e0), fst(e1)], fr, 1, 5).applyMatrix4(M), tailM); RH.done();
+          if (!i) { const q = fst(1); bcn = q.p.clone().add(V3(0, 0.05, -0.3 * q.c)).applyMatrix4(M); }
         });
-        P.beacon = add(new THREE.BoxGeometry(0.22, 0.22, 0.22), new THREE.MeshBasicMaterial({ color: 0xff2020 }), fins[0][0], r * 0.35 + fh + 0.1, t1 + 0.3);
-
-        const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 12);
-        for (const [x, z, top] of [[0, len * 0.3, -r * 0.6], [-r * 1.5, -len * 0.08, -r * 0.4], [r * 1.5, -len * 0.08, -r * 0.4]]) {
-          const piv = new THREE.Group(); piv.position.set(x, top, z); g.add(piv);
-          const h = top + 1.25;
-          add(new THREE.BoxGeometry(0.12, h, 0.12), DARKM, 0, -h / 2, 0, 0, 0, 0, piv);
-          add(wheelGeo, DARKM, 0, -h, 0, 0, 0, H90, piv);
-          P.gear.push(piv);
+        // Perche de Pitot, antennes
+        rod(K, A.chrome, V3(0, -0.06 * r, len * 0.59), V3(0, -0.06 * r, len * 0.68), 0.025);
+        for (const z of [-len * 0.05, len * 0.0]) K.add(foilGeo([{ p: V3(0, topAt(z) - 0.02, z + 0.12), c: 0.26, t: 0.1, u: 0, cd: NZ, td: AX }, { p: V3(0, topAt(z) + 0.2, z - 0.04), c: 0.1, t: 0.1, u: 0, cd: NZ, td: AX }], 0, 1, 4), A.rubber);
+        // Feux : navigation aux saumons, flashs, anticollision en haut de dérive
+        const tL = tip(1), tz = tL.p.z - 0.5 * tL.c;
+        lens(K, A, tL.p.x + 0.03, tL.p.y, tz, 0xff3030, 0.05); lens(K, A, -tL.p.x - 0.03, tL.p.y, tz, 0x30ff60, 0.05); lens(K, A, bcn.x, bcn.y, bcn.z, 0xff2020, 0.06);
+        root.add(glowPts([[tL.p.x + 0.06, tL.p.y, tz, 0xff2a2a], [-tL.p.x - 0.06, tL.p.y, tz, 0x2aff5a]], 1.0));
+        root.add(glowPts([[tL.p.x + 0.06, tL.p.y + 0.02, tz - 0.2, 0xffffff], [-tL.p.x - 0.06, tL.p.y + 0.02, tz - 0.2, 0xffffff]], 2.4, 'strobe'));
+        root.add(glowPts([[bcn.x, bcn.y + 0.04, bcn.z, 0xff2020]], 1.4, 'beacon'));
+        // Train : jambes oléopneumatiques, compas, trappes, phare sur la jambe de nez
+        for (const [x, z, top, sd] of [[0, len * 0.3, -r * 0.6, 0], [-r * 1.5, -len * 0.08, -r * 0.4, -1], [r * 1.5, -len * 0.08, -r * 0.4, 1]]) {
+          const piv = new THREE.Group(); piv.position.set(x, top, z); piv.userData.part = 'gear'; root.add(piv);
+          const GK = kit(); gearLeg(GK, A, top + 1.25, sd, true, trimB, null);
+          if (!sd) lens(GK, A, 0, -0.42, 0.1, 0xfff6dc, 0.07);
+          GK.build(piv);
         }
-        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-        P.flames.forEach(f => f.traverse(o => { o.castShadow = false; }));
-        g.userData.parts = P;
-        return g;
+        return K.build(root);
+      }
+      function createJet(ac, hostile) {
+        if (!PLANE_TPL.has(ac.look)) PLANE_TPL.set(ac.look, buildJet(ac, hostile));
+        return instancePlane(PLANE_TPL.get(ac.look));
       }
 
       // ════════════════════════ Branchements sur le moteur existant ════════════════════════
@@ -5827,6 +6518,433 @@
       const savedAc = raw.settings && raw.settings.ac;
       if (savedAc && AIRCRAFT[savedAc] && savedAc !== AC.id) setAircraft(savedAc);
       toast('Nouveau : campagne de combat (J) et 3 avions militaires (T).', 'ok');
+    })();
+  </script>
+
+  <!-- ═══════════ EXTENSION EN LIGNE · pair-à-pair, après le script combat ═══════════ -->
+  <style>
+    #olModal .olgrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 12px
+    }
+
+    #olModal .olcol {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0
+    }
+
+    #olModal label.f {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--mute);
+      text-transform: uppercase;
+      letter-spacing: .1em
+    }
+
+    #olModal input[type=text] {
+      background: rgba(0, 0, 0, .35);
+      border: 1px solid var(--line2);
+      border-radius: 8px;
+      color: var(--txt);
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 14px;
+      min-width: 0
+    }
+
+    #olModal .olbtns,
+    #olModal .olchat {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap
+    }
+
+    #olModal .olchat input {
+      flex: 1
+    }
+
+    #olPeers {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 13px
+    }
+
+    #olPeers li {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--line)
+    }
+
+    #olPeers li .m {
+      color: var(--mute)
+    }
+
+    #olLog {
+      height: 190px;
+      overflow: auto;
+      font-size: 13px;
+      background: rgba(0, 0, 0, .25);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px
+    }
+
+    #olLog .sys {
+      color: var(--mute)
+    }
+
+    #olLog b {
+      color: #7fd4ff
+    }
+
+    #olBtn.on span {
+      color: var(--green)
+    }
+
+    @media (max-width: 720px) {
+      #olModal .olgrid {
+        grid-template-columns: 1fr
+      }
+    }
+  </style>
+
+  <div id="olModal" class="modal">
+    <div class="card">
+      <div class="chead">
+        <h2>Vol en ligne · pair-à-pair</h2><button class="x" id="olClose">✕</button>
+      </div>
+      <p class="hint">Aucun serveur de jeu : les avions s'échangent leur position directement d'un navigateur à l'autre (WebRTC, chiffré).
+        Des trackers WebTorrent publics servent uniquement à se trouver, comme pour un torrent. Une seule session à la fois,
+        8 pilotes au maximum ; on se voit quand on est sur la même carte. Ouvrir une fenêtre met votre avion en pause, pas celui des autres.</p>
+      <div class="olgrid">
+        <div class="olcol">
+          <label class="f">Nom de pilote<input type="text" id="olPilot" maxlength="16" autocomplete="off" spellcheck="false"></label>
+          <label class="f">Code de session (le même pour tous les pilotes)<input type="text" id="olRoom" maxlength="24" autocomplete="off" spellcheck="false"></label>
+          <div class="olbtns">
+            <button class="btn primary" id="olJoin">Rejoindre</button>
+            <button class="btn danger" id="olLeave">Quitter</button>
+            <button class="btn" id="olLink">Copier le lien</button>
+          </div>
+          <div id="olStatus" class="hint"></div>
+          <span class="lbl">Pilotes de la session</span>
+          <ul id="olPeers"></ul>
+        </div>
+        <div class="olcol">
+          <span class="lbl">Messages</span>
+          <div id="olLog"></div>
+          <div class="olchat"><input type="text" id="olMsg" maxlength="200" placeholder="Message à la session…" autocomplete="off"><button class="btn" id="olSend">Envoyer</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+    (() => {
+      // ════════════════════════ Vol en ligne : une session pair-à-pair ════════════════════════
+      // Pas de serveur de jeu : chaque navigateur envoie l'état de son avion directement aux autres (canaux de données WebRTC chiffrés).
+      // La mise en relation passe par des trackers WebTorrent publics, comme un torrent : ils ne voient que des offres de connexion chiffrées.
+      // Bibliothèque Trystero (stratégie BitTorrent), chargée seulement au premier « Rejoindre ».
+      const LIB = 'https://cdn.jsdelivr.net/npm/@trystero-p2p/torrent@0.25.4/+esm';
+      const APP_ID = 'skyway-simulateur-de-vol-p2p-v1', MAX_PEERS = 8, SEND_DT = 1 / 12, DELAY = 0.15, STALE = 6;
+      const OL = { lib: null, room: null, act: null, code: '', joining: false, peers: new Map(), sendT: 0, uiT: 0, full: false, last: performance.now() };
+      const ST = DB.settings;
+      const cleanName = s => String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 16);
+      const cleanCode = s => String(s || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+      if (!cleanName(ST.pilot)) ST.pilot = 'Pilote-' + Math.floor(1000 + Math.random() * 9000);
+      if (!cleanCode(ST.room)) ST.room = 'SKYWAY';
+      const linkCode = cleanCode(new URLSearchParams(location.search).get('session'));
+      if (linkCode) ST.room = linkCode;
+      const fin = v => typeof v === 'number' && isFinite(v);
+      const R2 = v => Math.round(v * 100) / 100, R4 = v => Math.round(v * 1e4) / 1e4;
+
+      // ── Interface : bouton de la barre, ligne d'aide, fenêtre
+      const btn = document.createElement('button');
+      btn.className = 'tbtn'; btn.id = 'olBtn'; btn.title = 'Vol en ligne (pair-à-pair)';
+      btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg><span id="olBtnTxt">En ligne</span><kbd>U</kbd>';
+      const helpBtn = document.querySelector('#topbar .tbtn[data-act="help"]');
+      helpBtn.parentNode.insertBefore(btn, helpBtn);
+      btn.onclick = () => { Snd.init(); toggleModal('olModal'); renderUI(); btn.blur(); };
+      const helpTable = document.querySelector('#help table');
+      if (helpTable) { const tr = document.createElement('tr'); tr.innerHTML = '<td><kbd>U</kbd></td><td>Vol en ligne (pair-à-pair)</td>'; helpTable.appendChild(tr); }
+      $('olClose').onclick = closeAllModals;
+      $('olModal').addEventListener('mousedown', e => { if (e.target === $('olModal')) closeAllModals(); });
+      $('olPilot').value = ST.pilot; $('olRoom').value = ST.room;
+      $('olJoin').onclick = join; $('olLeave').onclick = () => leave();
+      $('olSend').onclick = sendChat;
+      $('olMsg').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+      $('olLink').onclick = () => {
+        const code = cleanCode($('olRoom').value) || ST.room, url = location.origin + location.pathname + '?session=' + encodeURIComponent(code);
+        (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Lien de session copié', 'ok'), () => prompt('Lien de la session :', url));
+      };
+      addEventListener('keydown', e => {
+        const tag = (e.target && e.target.tagName) || '';
+        if (e.repeat || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || RP.active) return;
+        if (keyId(e) === 'u') { toggleModal('olModal'); renderUI(); }
+      });
+      addEventListener('beforeunload', () => { if (OL.room) OL.room.leave(); });
+      if (linkCode) setTimeout(() => toast(`Lien de session ${linkCode} : appuyez sur U puis « Rejoindre »`, 'info'), 1500);
+
+      function logLine(html, cls) {
+        const d = document.createElement('div'); if (cls) d.className = cls;
+        if (typeof html === 'string') d.textContent = html; else d.append(...html);
+        const log = $('olLog'); log.appendChild(d);
+        while (log.children.length > 120) log.firstChild.remove();
+        log.scrollTop = log.scrollHeight;
+      }
+      const acName = id => (AIRCRAFT[id] || {}).name || id;
+      const mapName = id => (MAPS[id] || {}).name || id;
+      function trackers() {
+        try { const s = Object.values(OL.lib.getRelaySockets() || {}); return [s.filter(w => w && w.readyState === 1).length, s.length]; } catch (e) { return [0, 0]; }
+      }
+      function renderUI() {
+        const n = [...OL.peers.values()].filter(p => p.ok).length;
+        btn.classList.toggle('on', !!OL.room);
+        setText('olBtnTxt', OL.room ? `En ligne · ${n}` : 'En ligne');
+        if (!$('olModal').classList.contains('open')) return;
+        $('olJoin').disabled = OL.joining; $('olLeave').disabled = !OL.room;
+        let s;
+        if (OL.joining) s = 'Chargement de la bibliothèque réseau…';
+        else if (!OL.room) s = 'Hors ligne.';
+        else { const [a, b] = trackers(); s = `Session ${OL.code} · trackers ${a}/${b} connectés · ${n} autre${n > 1 ? 's' : ''} pilote${n > 1 ? 's' : ''}.`; }
+        setText('olStatus', s);
+        const ul = $('olPeers'); ul.innerHTML = '';
+        const me = document.createElement('li'); me.innerHTML = '<span></span><span class="m"></span>';
+        me.firstChild.textContent = `${ST.pilot} (vous)`; me.lastChild.textContent = `${acName(AC.id)} · ${MAP.name}`; ul.appendChild(me);
+        for (const p of OL.peers.values()) {
+          if (!p.ok) continue;
+          const li = document.createElement('li'); li.innerHTML = '<span></span><span class="m"></span>';
+          li.firstChild.textContent = p.name;
+          const same = p.map === MAP.id, d = p.cur ? Math.hypot(p.cur.x - plane.position.x, p.cur.z - plane.position.z) : 0;
+          li.lastChild.textContent = `${acName(p.ac)} · ` + (same ? `${fmtDist(d)} · ${Math.round(p.cur ? p.cur.y : 0)} m` : `carte ${mapName(p.map)}`);
+          ul.appendChild(li);
+        }
+      }
+
+      // ── Session : une seule à la fois (rejoindre une autre quitte la première)
+      async function join() {
+        if (OL.joining) return;
+        const code = cleanCode($('olRoom').value), name = cleanName($('olPilot').value);
+        if (!code) { toast('Code de session invalide (lettres, chiffres, tirets)', 'caution'); return; }
+        if (!name) { toast('Choisissez un nom de pilote', 'caution'); return; }
+        ST.pilot = name; ST.room = code; persist();
+        $('olPilot').value = name; $('olRoom').value = code;
+        if (OL.room) leave(true);
+        OL.joining = true; renderUI();
+        try { OL.lib = OL.lib || window.SKYWAY_P2P_LIB || await import(LIB); }   // SKYWAY_P2P_LIB : bibliothèque factice pour les tests
+        catch (e) { OL.joining = false; renderUI(); toast('Bibliothèque réseau inaccessible (connexion Internet ?)', 'warn'); logLine('Échec du chargement de ' + LIB, 'sys'); return; }
+        let room;
+        try {
+          room = OL.lib.joinRoom({ appId: APP_ID }, 'session-' + code, {
+            onJoinError: d => logLine(`Connexion directe impossible avec un pair (${(d && d.error) || 'réseau'}) : pare-feu ou NAT strict.`, 'sys')
+          });
+        } catch (e) { OL.joining = false; renderUI(); toast('WebRTC indisponible dans ce navigateur', 'warn'); return; }
+        OL.room = room; OL.code = code; OL.joining = false; OL.full = false;
+        const A = OL.act = { st: room.makeAction('st'), hi: room.makeAction('hi'), chat: room.makeAction('chat') };
+        A.st.onMessage = (d, m) => onState(m && m.peerId, d);
+        A.hi.onMessage = (d, m) => onHi(m && m.peerId, d);
+        A.chat.onMessage = (d, m) => onChat(m && m.peerId, d);
+        room.onPeerJoin = id => A.hi.send(profile(), { target: id });
+        room.onPeerLeave = id => dropPeer(id, true);
+        logLine(`Session ${code} ouverte. En attente d'autres pilotes (même code, même carte)…`, 'sys');
+        toast(`En ligne : session ${code}`, 'ok');
+        renderUI();
+      }
+      function leave(quiet) {
+        if (!OL.room) return;
+        try { OL.room.leave(); } catch (e) { }
+        for (const id of [...OL.peers.keys()]) dropPeer(id, false);
+        OL.room = OL.act = null;
+        if (!quiet) { logLine('Session quittée.', 'sys'); toast('Hors ligne', 'info'); }
+        renderUI();
+      }
+      const profile = () => ({ n: ST.pilot, ac: AC.id, map: MAP.id });
+      const announce = () => { if (OL.act) OL.act.hi.send(profile()); };
+
+      // ── Pairs : profil, avion, étiquette
+      function getPeer(id) {
+        if (!id || typeof id !== 'string') return null;
+        let p = OL.peers.get(id);
+        if (p) return p.ok ? p : null;
+        const n = [...OL.peers.values()].filter(q => q.ok).length;
+        p = { id, ok: n < MAX_PEERS - 1, name: 'Pilote', ac: null, map: null, mesh: null, tag: null, buf: [], off: null, last: 0, cur: null, tagT: 0 };
+        OL.peers.set(id, p);
+        if (!p.ok) { if (!OL.full) logLine(`Session pleine (${MAX_PEERS} pilotes) : les pilotes supplémentaires sont ignorés.`, 'sys'); OL.full = true; return null; }
+        return p;
+      }
+      function onHi(id, d) {
+        const p = getPeer(id); if (!p || !d || typeof d !== 'object') return;
+        const name = cleanName(d.n) || 'Pilote', ac = AIRCRAFT[d.ac] ? d.ac : 'sirocco', map = MAPS[d.map] ? d.map : 'vallee';
+        const first = !p.ac;
+        if (first) logLine(`${name} a rejoint la session (${acName(ac)}, carte ${mapName(map)}).`, 'sys');
+        else if (map !== p.map) logLine(`${name} passe sur la carte ${mapName(map)}.`, 'sys');
+        if (first) toast(`${name} a rejoint la session`, 'info');
+        const rebuild = ac !== p.ac || name !== p.name;
+        Object.assign(p, { name, map });
+        if (ac !== p.ac) { p.ac = ac; if (p.mesh) scene.remove(p.mesh); p.mesh = createPlane(AIRCRAFT[ac]); p.mesh.visible = false; scene.add(p.mesh); }
+        if (rebuild || !p.tag) makeTag(p);
+        renderUI();
+      }
+      function dropPeer(id, say) {
+        const p = OL.peers.get(id); if (!p) return;
+        if (p.mesh) scene.remove(p.mesh);
+        if (p.tag) { scene.remove(p.tag); p.tag.material.map.dispose(); p.tag.material.dispose(); }
+        OL.peers.delete(id);
+        if (say && p.ok && p.ac) { logLine(`${p.name} a quitté la session.`, 'sys'); toast(`${p.name} a quitté la session`, 'info'); }
+        renderUI();
+      }
+      // Étiquette au-dessus de l'avion : nom + distance (taille constante à l'écran)
+      function makeTag(p) {
+        if (!p.tag) {
+          const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+          const t = new THREE.CanvasTexture(c);
+          p.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, depthWrite: false, sizeAttenuation: false, transparent: true }));
+          p.tag.scale.set(0.16, 0.04, 1); p.tag.renderOrder = 10; p.tag.visible = false; scene.add(p.tag);
+        }
+        drawTag(p, '');
+      }
+      function drawTag(p, dist) {
+        const t = p.tag.material.map, g = t.image.getContext('2d');
+        g.clearRect(0, 0, 256, 64);
+        g.fillStyle = 'rgba(8,16,26,.62)'; rrect(g, 4, 6, 248, 52, 12); g.fill();
+        g.fillStyle = '#7fd4ff'; g.font = '700 26px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillText(p.name, 128, 24);
+        g.fillStyle = '#d6e4f0'; g.font = '600 18px Arial, sans-serif';
+        g.fillText(`${acName(p.ac)}${dist ? ' · ' + dist : ''}`, 128, 46);
+        t.needsUpdate = true;
+      }
+      function onChat(id, d) {
+        const p = OL.peers.get(id); if (!p || !p.ok || typeof d !== 'string') return;
+        const now = performance.now(); p.chat = (p.chat || []).filter(t => now - t < 4000);
+        if (p.chat.length >= 6) return;                         // anti-flood
+        p.chat.push(now);
+        const txt = d.replace(/[\u0000-\u001f]/g, ' ').slice(0, 200), b = document.createElement('b');
+        b.textContent = p.name + ' : ';
+        logLine([b, document.createTextNode(txt)]);
+        if (!$('olModal').classList.contains('open')) toast(`${p.name} : ${txt}`, 'info');
+      }
+      function sendChat() {
+        const txt = $('olMsg').value.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 200);
+        if (!txt) return;
+        if (!OL.act) { toast("Rejoignez d'abord une session", 'caution'); return; }
+        OL.act.chat.send(txt); $('olMsg').value = '';
+        const b = document.createElement('b'); b.textContent = ST.pilot + ' : '; logLine([b, document.createTextNode(txt)]);
+      }
+
+      // ── État des avions : [t, x, y, z, qx, qy, qz, qw, vitesse, gaz, train, drapeaux] à 12 Hz
+      // drapeaux : 1 au sol, 2 écrasé, 4 postcombustion, 8 masqué (rejeu)
+      function sendState(now) {
+        if (!OL.act || now - OL.sendT < SEND_DT * 1000) return;
+        OL.sendT = now;
+        const p = plane.position, q = plane.quaternion;
+        const f = (S.onGround ? 1 : 0) | (S.crashed ? 2 : 0) | (S.ab ? 4 : 0) | (RP.active || !plane.visible ? 8 : 0);
+        OL.act.st.send([Math.round(now) / 1000, R2(p.x), R2(p.y), R2(p.z), R4(q.x), R4(q.y), R4(q.z), R4(q.w), R2(S.speed), R2(S.throttle), R2(S.gearPos), f]);
+      }
+      function onState(id, d) {
+        const p = getPeer(id); if (!p || !Array.isArray(d) || d.length < 12 || !d.slice(0, 11).every(fin)) return;
+        const now = performance.now() / 1000, ts = d[0];
+        // horloge : plus petit écart réception − émission (latence + décalage), qui dérive lentement vers le haut
+        p.off = p.off === null ? now - ts : Math.min(p.off + 0.002, now - ts);
+        const q = new THREE.Quaternion(d[4], d[5], d[6], d[7]); if (q.lengthSq() < 0.5) return; q.normalize();
+        const s = { t: ts, x: d[1], y: d[2], z: d[3], q, spd: d[8], thr: clamp(d[9], 0, 1), gear: clamp(d[10], 0, 1), f: d[11] | 0 };
+        const b = p.buf; if (b.length && s.t <= b[b.length - 1].t) return;
+        b.push(s); if (b.length > 30) b.shift();
+        p.last = now;
+        if (!p.ac) onHi(id, {});                                // profil pas encore reçu : avion par défaut
+      }
+      // Interpolation 150 ms en arrière entre deux états reçus ; extrapolation courte si le flux prend du retard
+      const _qa = new THREE.Quaternion();
+      function updatePeers(now, dt) {
+        let i = 0;
+        for (const p of OL.peers.values()) {
+          if (!p.mesh) continue;
+          const b = p.buf, live = b.length && now - p.last < STALE, rt = now - p.off - DELAY;
+          const last = b[b.length - 1], vis = live && p.map === MAP.id && !(last.f & 8);
+          p.mesh.visible = p.tag.visible = !!vis;
+          if (!vis) continue;
+          let k = b.length - 1; while (k > 0 && b[k].t > rt) k--;
+          const a = b[k], c = b[k + 1], cur = p.cur || (p.cur = {});
+          if (c) {
+            const f = clamp((rt - a.t) / (c.t - a.t), 0, 1);
+            cur.x = a.x + (c.x - a.x) * f; cur.y = a.y + (c.y - a.y) * f; cur.z = a.z + (c.z - a.z) * f;
+            _qa.copy(a.q).slerp(c.q, f);
+          } else {
+            const pr = b[b.length - 2], e = Math.min(0.4, Math.max(0, rt - a.t)), kk = pr && a.t > pr.t ? e / (a.t - pr.t) : 0;
+            cur.x = a.x + (pr ? (a.x - pr.x) * kk : 0); cur.y = a.y + (pr ? (a.y - pr.y) * kk : 0); cur.z = a.z + (pr ? (a.z - pr.z) * kk : 0);
+            _qa.copy(a.q);
+          }
+          Object.assign(cur, { thr: a.thr, spd: a.spd, gear: (c || a).gear, f: (c || a).f });
+          p.mesh.position.set(cur.x, cur.y, cur.z); p.mesh.quaternion.copy(_qa);
+          const fwd = _kv.set(0, 0, 1).applyQuaternion(_qa); cur.hdg = compassOf(fwd.x, fwd.z);
+          animRemote(p, dt, now + i++);
+          const L = AIRCRAFT[p.ac].look;
+          p.tag.position.set(cur.x, cur.y + L.span * 0.25 + 3, cur.z);
+          if (now - p.tagT > 0.5) { p.tagT = now; drawTag(p, (cur.f & 2 ? 'écrasé · ' : '') + fmtDist(plane.position.distanceTo(p.mesh.position))); }
+        }
+      }
+      function animRemote(p, dt, t) {
+        const P = p.mesh.userData.parts, s = p.cur, w = s.f & 2 ? 0 : s.thr * 45 + s.spd * 0.3, ab = !!(s.f & 4);
+        P.gear.forEach(g => { g.rotation.x = -(1 - s.gear) * Math.PI / 2; g.visible = s.gear > 0.04; });
+        P.props.forEach((q, i) => q.rotation.z += (i % 2 ? -w : w) * dt);
+        P.blades.forEach(b => b.visible = w < 29);
+        P.flames.forEach(f => { f.visible = s.thr > 0.02 && !(s.f & 2); const k = ab ? 1.25 : 1; f.scale.set(k, 0.25 + s.thr * 0.75 + (ab ? 1.1 : 0), k); });
+        if (P.beacon) P.beacon.visible = (t % 1.2) < 0.12;
+      }
+
+      // ── Branchements : boucle (via updateWorld), radar, carte, changements d'avion et de carte
+      const _updateWorld = updateWorld;
+      updateWorld = function () {
+        _updateWorld();
+        const now = performance.now(), dt = Math.min(0.1, (now - OL.last) / 1000); OL.last = now;
+        if (!OL.room) return;
+        sendState(now);
+        updatePeers(now / 1000, dt);
+        OL.uiT += dt; if (OL.uiT > 0.5) { OL.uiT = 0; renderUI(); }
+      };
+      const _drawRadar = drawRadar;
+      drawRadar = function (t) {
+        _drawRadar(t);
+        if (!OL.room) return;
+        const { g, W } = RD, R = W / 2, k = (R - 14) / RADAR_RANGES[radarRange];
+        const px = plane.position.x, pz = plane.position.z, Hh = S.hdg * DEG, ch = Math.cos(Hh), sh = Math.sin(Hh);
+        g.save(); g.beginPath(); g.arc(R, R, R - 1, 0, Math.PI * 2); g.clip();
+        for (const p of OL.peers.values()) {
+          if (!p.mesh || !p.mesh.visible || !p.cur) continue;
+          const e = -(p.cur.x - px), n = p.cur.z - pz, x = R + (e * ch - n * sh) * k, y = R - (e * sh + n * ch) * k;
+          g.save(); g.translate(x, y); g.rotate((p.cur.hdg - S.hdg) * DEG);
+          g.fillStyle = '#7fd4ff'; g.beginPath(); g.moveTo(0, -7); g.lineTo(4.5, 5); g.lineTo(0, 2.5); g.lineTo(-4.5, 5); g.closePath(); g.fill(); g.restore();
+          g.fillStyle = '#cfeaff'; g.font = '600 10px Arial, sans-serif'; g.textAlign = 'left'; g.fillText(p.name.slice(0, 10), x + 7, y - 4);
+        }
+        g.restore();
+      };
+      const _drawMap = drawMap;
+      drawMap = function () {
+        _drawMap();
+        if (!OL.room || !MP) return;
+        const { g, W, H } = MP, k = mapView.scale;
+        for (const p of OL.peers.values()) {
+          if (!p.mesh || !p.mesh.visible || !p.cur) continue;
+          const x = W / 2 - (p.cur.x - mapView.x) * k, y = H / 2 - (p.cur.z - mapView.z) * k;
+          g.save(); g.translate(x, y); g.rotate(p.cur.hdg * DEG);
+          g.fillStyle = '#7fd4ff'; g.strokeStyle = '#06121c'; g.lineWidth = 1.5;
+          g.beginPath(); g.moveTo(0, -9); g.lineTo(6, 7); g.lineTo(0, 3.5); g.lineTo(-6, 7); g.closePath(); g.fill(); g.stroke(); g.restore();
+          g.font = '700 12px Arial, sans-serif'; g.textAlign = 'left'; g.lineWidth = 3; g.strokeStyle = 'rgba(6,18,28,.85)';
+          g.strokeText(p.name, x + 9, y - 6); g.fillStyle = '#cfeaff'; g.fillText(p.name, x + 9, y - 6);
+        }
+      };
+      const _setAircraft = setAircraft;
+      setAircraft = function (id) { _setAircraft(id); announce(); };
+      const _loadMap = loadMap;
+      loadMap = function (id) { const r = _loadMap(id); announce(); return r; };
     })();
   </script>
 </body>

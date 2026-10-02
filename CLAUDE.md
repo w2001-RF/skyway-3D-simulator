@@ -7,12 +7,16 @@ It started as a 3D truck/car scene and grew into:
 - 4 procedural maps (18–22 km play areas plus 6 km of surrounding terrain), switchable in the M window. An aircraft carrier (catapult, arresting wires) sits on Vallée and Archipel.
 - Keyboard, touch/tilt and gamepad controls.
 - Combat campaign: 6 missions, enemy AI, guns/missiles/flares, scoring and stars.
+- Online mode (U): one peer-to-peer session of up to 8 pilots, with no game server (WebRTC; discovery through public WebTorrent trackers).
 
 Constraints the user set:
 - Single HTML file, no downloaded assets.
 - Three.js r128 from `https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js`.
 - All textures procedural (canvas). Sounds are Web Audio oscillators.
-- Only external resource besides Three.js: Google Fonts (JetBrains Mono, Rajdhani), with fallbacks.
+- Other external resources:
+  - Google Fonts (JetBrains Mono, Rajdhani), with fallbacks.
+  - Trystero (`@trystero-p2p/torrent@0.25.4`, ESM from jsDelivr), loaded with a dynamic `import()` only when the player first clicks « Rejoindre » in the online window.
+  - Two official three.js r128 example scripts from jsDelivr (`three@0.128.0/examples/js/…`, same version as the core): `utils/BufferGeometryUtils.js` (merges aircraft parts per material) and `geometries/RoundedBoxGeometry.js`. The code checks `THREE.BufferGeometryUtils` / `THREE.RoundedBoxGeometry` and falls back to unmerged meshes / plain boxes when they fail to load.
 
 ## 2. File layout (current state)
 One file: `index.html`.
@@ -21,6 +25,7 @@ One file: `index.html`.
 3. **Combat extension**, pasted before `</body>`: `<style>`, extra DOM, `<script>` IIFE.
    - It extends `AIRCRAFT` and **wraps global functions** (see §9).
    - Must load AFTER the main script.
+4. **Online extension**, last before `</body>`: `<style>`, `#olModal`, `<script>` IIFE (see §9b). It loads after the combat extension and wraps the already-wrapped functions.
 
 ## 3. Conventions (critical, easy to break)
 **Axes and headings**
@@ -190,6 +195,27 @@ One file: `index.html`.
 - Each type also defines: `pitch, roll, yaw, gMax, stab, ctlRate, vne, vle, gearDrag, xwind, rpmMax, snd`, plus `look` (geometry and livery colors).
 - `vmaxOf(a) = sqrt(thrust / (drag·(1 + (retract ? 0 : gearDrag))))`.
 
+**3D models (`buildCivil` in the main script, `buildJet` in the combat extension)**
+- Built procedurally from `look`; overall dimensions match the old box models (wheel bottoms at −`GEAR`, same gear pivots, same camera offsets).
+- Fuselage, canopies, nacelles, intakes and wheel pants: `loftGeo(sections, seg, ex, a0, a1, caps)`. Super-elliptic sections `[z, halfWidth, halfHeight, yCenter]`, smoothed by `smoothSec` (Catmull-Rom). UV: u = angle (0 belly, 0.25 left side, 0.5 top, 0.75 right side), v = z.
+- Wings, tails, pylons and prop blades: `foilGeo(stations, f0, f1)`, a lofted NACA 00xx profile with camber. UV v = 0 lower TE → 0.5 LE → 1 upper TE. A chord slice `f0..f1` makes the control surfaces (real gaps).
+- `buildWing(root, K, W, mat)`: main box (chord 0 … `fh`), fixed flaps and tip trailing edges, ailerons on hinges.
+- `hinge(parent, a, b, axis, part)` puts a pivot on the hinge line a→b, so `rotation.x` (ailerons, elevator) or `rotation.y` (rudders) turns about the real hinge.
+- Details:
+  - Interior (panel, seats, pilot), canopy frames, twisted blades with yellow tips, spinner, blur disc.
+  - Oleo struts, torque links, tyres (torus), doors or wheel pants, pitot, antennas, exhausts.
+  - Jets: intakes with dark ducts, petal nozzles with turbine face, detailed missiles (`MIS_GEO`, vertex colours, also used for fired missiles).
+- Liveries are painted per type on canvas by `paintCivilBody/Wing/Tail` and `paintJetBody/Wing/Tail`:
+  - `skinTex` returns a colour map and a bump map; `seam()` draws panel lines and rivets.
+  - Placement helpers: `bodyFrame().side(ctx, ±1, z, height, fn)` draws in metres, upright on either side of the fuselage. Wing and fin markings use the transforms documented in the code.
+  - Content: registrations (`REGS`), cheat lines, cockpit windows, soot, roundels, serials (`SERIAL`), camouflage (`camo`, seeded by `mulberry32`, so it is deterministic).
+- Static parts are collected by `kit()` and merged per material (`BufferGeometryUtils.mergeBufferGeometries`). This gives about 30–40 meshes per aircraft, most of them in the gear legs and moving parts.
+- Lights: coloured lenses (`lens`, vertex colours) plus additive `Points` halos (`glowPts`). Nav lights are always on; `beacon` and `strobe` blink in `animatePlaneParts`.
+- Templates: `PLANE_TPL` (Map keyed by the `look` object) caches one built model per type. `createPlane` / `createJet` return `instancePlane(tpl)`, a `clone()` sharing geometry and materials, with `userData.parts` rebuilt from the `userData.part` tags (`prop, blades, disc, gear, ail, elev, rud, rud2, beacon, strobe, flame, pylon`). **Never dispose a plane's geometry or materials**: they are shared with the template and with enemies of the same type.
+- Materials: `airMats()` (shared: chrome, tyres, interior, lenses, glow), `paintMat` (livery), `trimMat(colour)` (generic panel skin tinted).
+  - All are `MeshStandardMaterial`s created through `envMat`, which registers them in `ENV_MATS`.
+  - `updateEnvMap()` (called by `loadMap`) renders the map's sky, haze, ground and sun into a PMREM environment and assigns it to every registered material: reflections on paint, canopies and metal.
+
 ## 7. Controls (keyboard, AZERTY + QWERTY)
 - **Key normalization:** `keyId(e)` maps `Digit*` and `Numpad*` codes to digits, everything else to `e.key.toLowerCase()`.
 - **Throttle:** Z/W up, S down.
@@ -199,6 +225,7 @@ One file: `index.html`.
 - **Camera look (GTA-style):** drag on the 3D view (left/right button or one finger) to orbit, wheel to zoom, double-click to recentre; it auto-recentres 1.5 s after release. Hold O or the middle mouse button for the rear view. Applies to Poursuite, Cockpit (head look) and Latérale; Cinéma ignores it. State: `LOOK` (`lookState`, `updateLook`, `initMouseLook`).
 - **View, sound, misc:** C camera (Poursuite/Cockpit/Latérale/Cinéma), K record trajet, N sound, I invert pitch, H help, R restart, Esc pause / close modal.
 - **Combat:** J campaign, F gun (hold), V missile, B flares, Tab next target, Shift + full throttle afterburner.
+- **Online:** U opens the online window (also a « En ligne » button in the top bar, which shows the number of connected pilots).
 - **Gamepad** (`pollGamepad()` each frame, standard mapping, first connected pad):
   - Left stick: roll / pitch (pull back = climb, `I` still inverts). Right stick X: rudder. RT / LT: throttle up / down. RT fully pressed at full throttle: afterburner.
   - Held buttons set `keys` (`PAD_HOLD`): A brakes, RB gun, R3 rear view.
@@ -215,7 +242,8 @@ One file: `index.html`.
 - `init`, `buildTextures`, `canvasTex`, `texRep`, `makeAsphalt`, `makeLivery`.
 - `loadMap`, `switchMap`, `genHeights`, `prepareGrids`, `buildTerrain`, `buildColorMap`, `buildWater`, `buildLakes`, `buildFields`, `buildTrees`, `buildMapImage`, `disposeWorld`.
 - `createSky`, `createClouds`/`scatterClouds`, `createRoad`, `buildAirport`, `buildWindsock`, `buildCarrier`, `hiTex` (textures drawn at `GFX.tex`× resolution).
-- `createPlane(ac)` returns a Group with `userData.parts = {props, gear, ail[{piv, side}], elev, rud, beacon}`.
+- `createPlane(ac)` returns a Group with `userData.parts = {props, blades, discs, gear, ail[{piv, side}], elev, rud, beacon, strobes}` (+ `flames, pylons, rud2` for jets). See §6, 3D models.
+- Aircraft kit: `kit`, `hinge`, `rod`, `loftGeo`, `foilGeo`, `smoothSec`, `secAt`, `buildWing`, `bladeGeo`, `spinnerGeo`, `gearLeg`, `lens`, `glowPts`, `skinTex`, `seam`, `mText`, `roundel`, `bodyFrame`, `envMat`, `updateEnvMap`, `airMats`, `trimMat`, `instancePlane`.
 - `createTruck`, `applyAircraftCamera`, `animatePlaneParts`.
 
 **Flight and flight lifecycle**
@@ -282,7 +310,7 @@ One file: `index.html`.
 DB = {
   flights[],
   best{maxAlt, maxSpeed, longest, softest},
-  settings{invert, sound, ac, gfx, dynRes, map, wx{preset, from, base, gust, turb}},
+  settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}},
   combat{unlocked, best{levelId: {score, stars, time, ac}}, ac, start('base'|'carrier')}
 }
 ```
@@ -332,6 +360,37 @@ DB = {
 - Impacts (enemy crashes, wrecks, bullets, missiles, terrain avoidance) use `groundAt` (water and deck included).
 - Combat HUD: full-screen `#cbOverlay` canvas (gunsight, target brackets, lock diamond, lead circle, off-screen arrows, damage vignette), `#cbPanel`, `#cbBanner`, `#cbModal`.
 
+## 9b. Online extension (IIFE after the combat extension)
+**Model:** one session at a time, full mesh peer-to-peer, at most `MAX_PEERS = 8` pilots (the extras are ignored and the log says so). There is no host and no authority: each client simulates only its own aircraft.
+- Discovery: Trystero BitTorrent strategy. `joinRoom({appId: APP_ID}, 'session-' + CODE)` announces on public WebTorrent trackers (`wss://`), which only relay encrypted WebRTC offers and answers.
+- Game data then flows directly between browsers over WebRTC data channels. Peers behind a strict NAT or firewall may fail to connect (`onJoinError` is logged); a TURN server would be needed for them.
+- Discovery takes about 10–30 s.
+- Session code: `cleanCode` (A–Z, 0–9, `-`, max 24). The pilot name is `cleanName` (max 16, no `<>` or control characters). Both persist in `DB.settings.pilot/room`.
+- `?session=CODE` in the URL pre-fills the code (« Copier le lien »). Joining another session leaves the current one.
+
+**Actions** (Trystero `makeAction`):
+- `hi` = profile `{n, ac, map}`: sent to each new peer, and to everyone after `setAircraft` / `loadMap` (both wrapped).
+- `st` = state at 12 Hz: `[t, x, y, z, qx, qy, qz, qw, speed, throttle, gearPos, flags]`. Flags: 1 on the ground, 2 crashed, 4 afterburner, 8 hidden (replay or invisible).
+- `chat` = text (max 200 chars, at most 6 messages per 4 s per peer). Incoming text is shown with `textContent` only.
+- All incoming data is validated: finite numbers, aircraft id in `AIRCRAFT`, map id in `MAPS`, quaternion length.
+
+**Remote planes**
+- `createPlane(AIRCRAFT[ac])` (template clone, cheap) plus a name/distance `Sprite` (`sizeAttenuation: false`, `depthTest: false`).
+- Both are added to `scene` (not `worldGroup`) and shown only when the peer is on the same map, not hidden, and sent data less than `STALE = 6` s ago.
+- Interpolation runs 150 ms in the past (`DELAY`), on the sender's clock mapped with `off` = min(receive − send), which drifts slowly upward. When data runs out it extrapolates for up to 0.4 s.
+- `animRemote` animates gear, props, blades and flames from the received state.
+
+**Hooks** (wrapping pattern): `updateWorld` sends our state, updates the peers and refreshes the UI every 0.5 s. Also wrapped:
+- `drawRadar`: cyan blips + names;
+- `drawMap`: cyan arrows + names;
+- `setAircraft` and `loadMap`: re-announce the profile.
+
+**UI**
+- `#olModal`: pilot name, session code, Rejoindre / Quitter / Copier le lien, tracker status (`getRelaySockets`), list of pilots (aircraft, distance, altitude or other map), chat log.
+- Opening any window pauses only the local plane.
+
+**Testing:** `window.SKYWAY_P2P_LIB`, if defined before « Rejoindre », replaces the Trystero import, so headless tests can use a mock `{joinRoom, getRelaySockets}`. A real two-browser test is possible by driving two headless Edge instances (separate `--user-data-dir`) through the DevTools protocol.
+
 ## 10. Known caveats / gotchas
 - The main script resets `settings.ac` to 'sirocco' when the saved id is unknown, because jets are defined later. The extension restores the saved jet from `Store.load()`.
 - localStorage is blocked in claude.ai artifact previews. Records then live only for the session; Export works.
@@ -345,6 +404,9 @@ DB = {
 - Headless Edge does not run requestAnimationFrame. Test physics by calling `physicsStep(1/120)` in a loop.
 - `GFX`, `GPU` and `DB` are read before `init()`. `DYN` is declared next to `animate` and must exist before `init()` runs.
 - `center(e)` and the temp vectors are shared; clone them before storing.
+- Aircraft models are cached per type and cloned. Enemy wrecks clone their materials before darkening them; do the same for any per-instance material change.
+- Livery canvases are painted the first time a type is built (about 0.1–0.3 s per type at `GFX.tex = 2`). Enemy types are built when they first spawn.
+- The HTML contains a comment with the literal text `</body>` (before the combat extension). Test harnesses that inject scripts must insert before the LAST `</body>`.
 
 ## 11. Suggested next steps for Claude Code
 1. Split into modules with Vite:
