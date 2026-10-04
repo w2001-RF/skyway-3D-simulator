@@ -3,10 +3,11 @@
 ## 1. Project summary
 Single-page browser flight simulator, French UI ("SKYWAY · Simulateur de vol").
 It started as a 3D truck/car scene and grew into:
-- Civil flight sim: 4 civil + 3 military aircraft, wind, gear, reverse thrust, navigation and flight planning, radar and map, records.
-- 4 procedural maps (18–22 km play areas plus 6 km of surrounding terrain), switchable in the M window. An aircraft carrier (catapult, arresting wires) sits on Vallée and Archipel.
+- Civil flight sim: 5 civil aircraft (including the Mistral airliner) + 4 military (including the Condor bomber), wind, gear, flaps, reverse thrust, navigation and flight planning, ILS / PAPI / meatball, radar and map, records.
+- 4 procedural maps (18–22 km play areas plus 6 km of surrounding terrain), sorted from easiest to hardest and switchable in the M window. An aircraft carrier (catapult, arresting wires) sits on Vallée and Archipel.
+- Missions hub (J): pilot school (7 guided lessons), civil transport contracts (freight and passengers), combat campaign.
 - Keyboard, touch/tilt and gamepad controls.
-- Combat campaign: 6 missions, enemy AI, guns/missiles/flares, scoring and stars.
+- Combat campaign: 9 missions in two series (air superiority, ground attack), enemy AI, guns/missiles/bombs/flares, scoring and stars.
 - Online mode (U): one peer-to-peer session of up to 8 pilots, with no game server (WebRTC; discovery through public WebTorrent trackers).
 
 Constraints the user set:
@@ -25,7 +26,8 @@ One file: `index.html`.
 3. **Combat extension**, pasted before `</body>`: `<style>`, extra DOM, `<script>` IIFE.
    - It extends `AIRCRAFT` and **wraps global functions** (see §9).
    - Must load AFTER the main script.
-4. **Online extension**, last before `</body>`: `<style>`, `#olModal`, `<script>` IIFE (see §9b). It loads after the combat extension and wraps the already-wrapped functions.
+4. **Online extension**: `<style>`, `#olModal`, `<script>` IIFE (see §9b). It loads after the combat extension and wraps the already-wrapped functions.
+5. **School & transport extension**, last before `</body>`: `<style>`, `#msModal`, `#tutPanel`, `#ctPanel`, `<script>` IIFE (see §9c). It uses `window.SKYWAY_COMBAT` (API exported by the combat extension) and wraps on top of everything else.
 
 ## 3. Conventions (critical, easy to break)
 **Axes and headings**
@@ -57,14 +59,15 @@ One file: `index.html`.
 - Plane-center height on gear: `GEAR = 1.6`. Wheels bottom at −1.6 local.
 - Runways 800 × 30 m.
 
-**Maps (`MAPS`, `MAP_ORDER`)**
+**Maps (`MAPS`, `MAP_ORDER`, `MAP_DIFF`)**
+- `MAP_ORDER` = easiest → hardest: vallee (Facile), archipel (Moyen), canyon (Difficile), alpes (Expert). `MAP_DIFF[id] = {lvl, note}`, `DIFF_NAMES`, `DIFF_COLS`; the map picker shows ●○ dots and the note is prepended to `#mapDesc`.
 - Each map = `{name, desc, world, seed, haze, palette, clouds[lo,hi], trees, treeline, snow, fields, airports[], lakes[], road?, corridors?, relief(x,z,N)}`.
 - `WORLD` (play area ±world), `ROAD_X`, `ROAD_LEN` (0 = no road) are `let`s set by `loadMap`.
 - `AIRPORTS`, `LAKES`, `CARRIERS` are `const` arrays refilled in place by `loadMap`. Never reassign them.
 
   | id | name | world (±m) | relief | carrier |
   |---|---|---|---|---|
-  | vallee | Vallée | 9000 | original 4 airports + lakes + road at the center (same coordinates as before), hills, ridges to ~1400 m north and east, coast to the west (+X) | PA1 at (8000, 300) |
+  | vallee | Vallée | 9000 | original 4 airports + lakes + road at the center (same coordinates as before), hills, ridges to ~1400 m north and east, coast to the west (+X) | PA1 at (8000, 300), heading 0 (parallel to the coast) |
   | alpes | Hautes-Alpes | 10000 | ridged peaks to ~3100 m, flat-floored valleys (`corridors`), glacier altiport GLA ~1700 m | — |
   | archipel | Archipel | 11000 | ocean with islands (`islands`), 1150 m volcano with a crater | PA1 at (0, −6200) |
   | canyon | Canyons | 10000 | 380 m plateau, terraced mesas, gorges with rivers below sea level | — |
@@ -111,6 +114,7 @@ One file: `index.html`.
 - Deck 300 × 64 m at `DECK_Y = 16`. Island on the starboard side (−X), box `CV.ISL`.
 - Catapult track from `CV.CAT0` (+10) to `CV.CAT1` (+146). Civil aircraft start at `CV.START` (−132). Wires at `CV.WIRES` (−100, −88, −76, −64).
 - Deck texture: 256 × 1024 canvas (top = stern, left = starboard).
+- Vallée's carrier was turned from h = π/2 to h = 0: with its stern toward the land, the straight-in approach crossed an 800 m cliff 2.5 km out. Now approach and catapult are both over the sea.
 - Touchdown aim point `CV.TDZ` (−82, between the 2nd and 3rd wires): the ICLS glide path (3.5°) and the meatball refer to it. Meatball on a port sponson (+X) at `CV.MB_Z` (−78), see §8 « Landing aids ».
 
 ## 5. Flight model (`updatePlane(dt)`, vector aerodynamics)
@@ -195,12 +199,16 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 | sirocco | touring, low wing | 28 / 32 | 7 | .0011 | retract | .35 | default |
 | faucon | aerobatic | 32 / 38 | 11.5 | .00095 | retract | 0 | roll 3.4 |
 | atlas | twin-engine cargo, T-tail | 34 / 40 | 6.8 | .0007 | retract | .6 | sluggish, stable |
+| mistral | twin-jet airliner, 70 pax | 46 / 56 | 13 | .00038 | retract | .55 | `vfe` 88, very stable |
+| condor* | twin-prop bomber | 36 / 44 | 8 | .0006 | retract | .3 | 16 bombs, no missiles, not a jet |
 | epervier* | delta + canards jet | 50 / 60 | 26 | .00045 | retract | 0 | AB ×1.45 |
 | harfang* | twin-tail multirole jet | 55 / 66 | 25 | .00042 | retract | 0 | 6 missiles |
 | titan* | armored attack jet | 40 / 48 | 14 | .0005 | retract | 0 | armor ×2.2 |
 
-\* defined in the combat extension.
-- Military entries also carry: `jet: true`, `ab`, `baseThrust`, `baseFuelThr`, and `mil: {guns, missiles, flares, armor, gunDmg}`.
+\* defined in the combat extension. The Condor is not `jet` (no afterburner, no hook): it is built by `buildCivil` (twin, `look.mil` livery) but carries `mil`, `ab: 1`, `baseThrust`, `baseFuelThr`.
+- Payload `cap: {pax, kg}` (transport contracts): alouette 1 / 120, sirocco 3 / 350, faucon 0, atlas 8 / 4500, mistral 70 / 2500; military types none.
+- `look` flags for `buildCivil` twins: `fan` (turbofans under a low wing instead of propellers, main gear at 1.65 r), `pax` (row of cabin windows, doors, « SKYWAY » title, registration below the windows), `mil` (roundel, no cabin windows).
+- Military entries also carry: `jet: true`, `ab`, `baseThrust`, `baseFuelThr`, and `mil: {guns, missiles, flares, armor, gunDmg, bombs}` (bombs: Épervier 2, Harfang 4, Titan 10, Condor 16).
 - Each type also defines: `pitch, roll, yaw, gMax, stab, ctlRate, vne, vle, gearDrag, xwind, rpmMax, snd`, plus `look` (geometry and livery colors).
 - `vmaxOf(a) = sqrt(thrust / (drag·(1 + (retract ? 0 : gearDrag))))`.
 
@@ -247,7 +255,8 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - **Windows:** M/P map & flight plan, L records, T aircraft & weather.
 - **Camera look (GTA-style):** drag on the 3D view (left/right button or one finger) to orbit, wheel to zoom, double-click to recentre; it auto-recentres 1.5 s after release. Hold O or the middle mouse button for the rear view. Applies to Poursuite, Cockpit (head look) and Latérale; Cinéma ignores it. State: `LOOK` (`lookState`, `updateLook`, `initMouseLook`).
 - **View, sound, misc:** C camera (Poursuite/Cockpit/Latérale/Cinéma), K record trajet, N sound, I invert pitch, H help, R restart, Esc pause / close modal.
-- **Combat:** J campaign, F gun (hold), V missile, B flares, Tab next target, Shift + full throttle afterburner.
+- **Missions:** J opens the Missions hub (school, transport, combat tabs; the top-bar button is « Missions »).
+- **Combat:** F gun (hold), V missile, Space or Enter in the air = bomb (edge-triggered in `combatUpdate`, so the gamepad A button works too), B flares, Tab next target, Shift + full throttle afterburner.
 - **Online:** U opens the online window (also a « En ligne » button in the top bar, which shows the number of connected pilots).
 - **Gamepad** (`pollGamepad()` each frame, standard mapping, first connected pad):
   - Left stick: roll / pitch (pull back = climb, `I` still inverts). Right stick X: rudder. RT / LT: throttle up / down. RT fully pressed at full throttle: afterburner.
@@ -275,7 +284,7 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - `toggleGear`, `toggleReverse`, `onTakeoff`, `onTouchdown`, `finishLanding`, `crash`.
 
 **Navigation and HUD**
-- `computeAttitude`, `computeNav` (BRG, DIST, ETA, DTK, XTK, ILS, remaining distance). The target airport object is `NAV.target.ap`.
+- `computeAttitude`, `computeNav` (BRG, DIST, ETA, DTK, XTK, ILS, remaining distance). The target airport object is `NAV.target.ap`. In free flight the target is `NAV.lock` (set by lessons) or the nearest airport.
 - `drawHorizon`, `drawStick`, `drawRadar(t)` (heading-up, 5 ranges up to 8 km). `drawRadarTerrain` draws a 64² image sampled every frame: red = above the plane, orange = within 150 m below, blue = water.
 - `drawMap`: `MAPIMG` relief, darkened area outside `WORLD`, peaks, carrier ⚓, zoom/pan, click to add a waypoint.
 - `fillAirportSelects` rebuilds the plan selects and the map picker (`#mapPick`).
@@ -348,7 +357,9 @@ DB = {
   flights[],
   best{maxAlt, maxSpeed, longest, softest},
   settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}},
-  combat{unlocked, best{levelId: {score, stars, time, ac}}, ac, start('base'|'carrier')}
+  combat{unlocked, unlockedSol, best{levelId: {score, stars, time, ac}}, ac, start('base'|'carrier')},
+  school{done{lessonId: {date, time}}},
+  career{money, contracts, pax, kg, failed}
 }
 ```
 - Export/import JSON is available in the Records window.
@@ -370,7 +381,9 @@ DB = {
 
 **Other pieces**
 - `CB`: combat state, holding `hp, ammo, msl, flr, score, kills, shots, hits, enemies, bullets, missiles, flares, puffs, smokes, pending, goals, rtb, target, lockT, radarDown`.
-- `UNIT` (hp, radius, score): drone 20/5/50, fighter 60/8/300, ace 180/8/1500, bomber 220/15/400, truck 40/8/150, aaa 60/6/200, sam 90/7/350, radar 120/9/500.
+- `UNIT` (hp, radius, score): drone 20/5/50, fighter 60/8/300, ace 180/8/1500, bomber 220/15/400, truck 40/8/150, aaa 60/6/200, sam 90/7/350, radar 120/9/500, inf 30/10/120, tank 160/6/350, depot 180/16/400.
+  - `gunK` scales gun damage (tank 0.25, depot 0.4): armour needs bombs. `inf` = one merged 8-soldier mesh (`SQUAD_GEO`, vertex colours).
+  - Ground groups with `march: [x, z]` and `speed` walk over the terrain toward that point, keeping their formation offset; `e.arrived` when within 40 m. Tank turrets track the player relative to the hull.
 - AI per kind:
   - fighters: lead pursuit, evasion, terrain avoidance, gun bursts, missiles;
   - bombers: fly to base, tail gunner;
@@ -378,14 +391,19 @@ DB = {
   - trucks: drive −Z on the road;
   - AAA: flak;
   - SAM: missile every 9 s (16 s once the radar is destroyed), only if the player's AGL > 60;
-  - radar: rotating dish.
+  - radar: rotating dish;
+  - infantry: small-arms bursts at a player below 350 m AGL within 650 m.
 - Weapons:
   - bullets: segment-vs-sphere hit test;
   - player gun: 18 rounds/s at 950 m/s, plus aircraft velocity;
   - missiles: lead pursuit, player 480 m/s turning 3.2 rad/s, enemy 360 m/s turning 2.1 rad/s;
   - lock: < 3.2 km and within 0.33 rad, takes 0.9 s;
-  - flares: 75 % chance to decoy each incoming missile.
-- `LEVELS` (6), each with `{id, name, diff, base, wx, time, air?, brief, tips, spawn[{kind, n, at, spread, alt, skill, msl, delay, speed, toward, escort}], goals[{kinds, label}], rtb?, fail?('convoy'|'bombers')}`.
+  - flares: 75 % chance to decoy each incoming missile;
+  - bombs (`dropBomb`, `updateBombs`, `blast`): released under the fuselage (twins) or alternately under the wings with the aircraft velocity, gravity plus light drag (`BOMB_DRAG`), blast radius `BOMB_R` 38 m (up to 240 + 120 on a direct hit) on ground units only; the player takes damage within 60 m of the blast;
+  - CCIP (`ccip()`): integrates the same trajectory in 0.05 s steps until it meets `groundAt`; the overlay draws the impact circle, the fall line and « LARGUEZ » (red) when a ground target is inside the blast.
+- `LEVELS` (9), each with `{id, track?, name, diff, base, wx, time, air?, brief, tips, spawn[{kind, n, at, spread, alt, skill, msl, delay, speed, toward, escort, march}], goals[{kinds, label}], rtb?, fail?('convoy'|'bombers'|'reach'), failMsg?}`.
+  - Two series unlocked separately: air superiority (1–6, `DB.combat.unlocked`) and `track: 'sol'` ground attack (7 Dépôts de carburant, 8 Colonne blindée, 9 Tête de pont, `DB.combat.unlockedSol`). Helpers `trackIdx`, `isUnlocked`, `nextInTrack`; the campaign window shows one section per series.
+  - `fail: 'reach'` fails the mission when a marching unit arrives.
 - Scoring: kills + 3·time left (vs `CB.timeLimit`) + 10·hp + 1000·accuracy.
   - Stars: 1 for completing, +1 if hp ≥ 60, +1 if time ≤ 60 % of the limit.
   - Completing a level unlocks the next one.
@@ -395,7 +413,9 @@ DB = {
   - Return to base is satisfied by stopping at `L.base` OR on the carrier.
   - `startLevel` first `switchMap('vallee')` if needed. The level-3 convoy uses the literal road x = 90.
 - Impacts (enemy crashes, wrecks, bullets, missiles, terrain avoidance) use `groundAt` (water and deck included).
-- Combat HUD: full-screen `#cbOverlay` canvas (gunsight, target brackets, lock diamond, lead circle, off-screen arrows, damage vignette), `#cbPanel`, `#cbBanner`, `#cbModal`.
+- Combat HUD: full-screen `#cbOverlay` canvas (gunsight, CCIP, target brackets, lock diamond, lead circle, off-screen arrows, damage vignette), `#cbPanel` (gun, missiles, flares, bombs, score), `#cbBanner`, `#cbModal`.
+- Custom levels: `startCustom(L)` runs a level object outside `LEVELS` (no briefing, no record, no unlock; `time: 0` = no limit). `succeed` / `fail` call `L.onWin()` / `L.onFail(reason)` instead. `curL()` returns `CB.custom || LEVELS[CB.level]`.
+- `window.SKYWAY_COMBAT = {state: CB, startCustom, abort, openCampaign, button, _test}` (`_test` exposes `dropBomb`, `updateBombs`, `ccip`, `updateEnemies`, `isUnlocked`, `LEVELS` for headless probes).
 
 ## 9b. Online extension (IIFE after the combat extension)
 **Model:** one session at a time, full mesh peer-to-peer, at most `MAX_PEERS = 8` pilots (the extras are ignored and the log says so). There is no host and no authority: each client simulates only its own aircraft.
@@ -428,7 +448,27 @@ DB = {
 
 **Testing:** `window.SKYWAY_P2P_LIB`, if defined before « Rejoindre », replaces the Trystero import, so headless tests can use a mock `{joinRoom, getRelaySockets}`. A real two-browser test is possible by driving two headless Edge instances (separate `--user-data-dir`) through the DevTools protocol.
 
+## 9c. School & transport extension (last IIFE)
+**Payload**: wraps `updatePlane`. Mass factor `m` = (contract mass) × (lesson mass); for non-jets it temporarily sets `AC.thrust / m`, `AC.stall · √m`, `AC.vr · √m` around the original call, then restores them. Contract mass = 1 + 0.35 × load fraction (passengers count 0.8 of the seat fraction).
+
+**Transport contracts** (`CT`, `OFFERS`):
+- `makeOffer(from?)`: random pair of non-carrier airports on the current map (12 % chance of a freight delivery to the carrier, ≤ 320 kg). Freight 60–4400 kg (`CARGO` list, some fragile) or 1–70 passengers. `urgent` (delay ×0.8, pay ×1.4), `fragile` (pay ×1.2, hard landings cost more).
+- Delay = distance / (0.75 × vmax of the slowest capable aircraft) × 1.45 + 240 s. Pay = (180 + km × (pax: 30 + 4·n, freight: 35 + kg/45)) × modifiers.
+- `acceptOffer`: must be on the ground; switches to the smallest capable aircraft if needed, starts a `mission` trip from → to (nav bar, ILS) and places the plane at the origin.
+- `contractTick` (per physics step): timer; passenger comfort loses points for |g − 1| > 0.45, bank > 30°, pitch > 18° / < −10°, sink > 9 m/s, stall warning and strong turbulence.
+- `finishLanding` is wrapped: landing at the destination after take-off calls `completeContract` (pay: on time / early bonus / late penalty, comfort for passengers, landing grade; 1–3 stars; logs a « Transport » flight; adds a new offer from that airport). A crash loses the contract (`DB.career.failed`). Changing map or starting another flight cancels it.
+- `#ctPanel` (bottom left, hides `#help`): load, destination, timer, mass and Vr, comfort bar, expected pay, Abandon.
+
+**Pilot school** (`LESSONS`, `TUT`): 7 lessons on Vallée (switches map, sets the lesson weather and restores `WX` afterwards).
+- Lessons: vol1 Premier vol (Alouette), vol2 Approche et atterrissage (Alouette, air start 2.9 km out), cargo1 Cargo lourd (Atlas, mass 1.3, circuit back to runway 36), ligne1 Approche ILS en liner (Mistral, 4.5 km out), chasse1 Postcombustion et voltige (Épervier), chasse2 Armement (Titan, drones + depot via `startCustom`), chasse3 Appontage (Harfang, 1.9 km behind the carrier).
+- Steps `{t, ok(), hold?, sum?, hint?}`: `ok` is polled every physics step; `hold` seconds must be continuous unless `sum`. Hints appear after 20 s on a step. `TUT.st` holds lesson state (cumulative roll for the barrel roll, `tab` pressed).
+- `airStart(o)`: `{ap, lx?, lz, h, speed, thr, gear?, flaps?}` in the airport frame, heading toward local +Z. `NAV.lock` makes nav and ILS target the lesson airport.
+- `#tutPanel` (top centre; `body.tut` moves `#cbBanner` down): step text, progress bar, Passer / Recommencer (R) / Quitter. A crash or a failed custom combat shows « Leçon interrompue »; success stores `DB.school.done[id]`.
+
+**Missions hub** (`#msModal`, `window.SKYWAY_MISSIONS = {open(tab), toggle, startLesson, stopLesson, acceptOffer, refreshOffers, cancelContract, offers, tut, ct, LESSONS}`): tabs École / Transport / Combat. Combat opens `#cbModal`, which gets the same tab bar. `renderRecords` is wrapped to add transport totals and school progress.
+
 ## 10. Known caveats / gotchas
+- Terrain blocks many straight-in approaches (the survey probe measures clearance under a 3° path): on Vallée, VAL 36 is clear only within about 4.7 km (an 800 m ridge beyond), VAL 18 is cut by a 193 m hill at 2.8 km; LAC, NOR, SUD, EST and COT are clear from the south, CIM from the north; Hautes-Alpes has almost no clear straight-in approach. Place air-start lessons and scripted approaches inside the clear zone.
 - The main script resets `settings.ac` to 'sirocco' when the saved id is unknown, because jets are defined later. The extension restores the saved jet from `Store.load()`.
 - localStorage is blocked in claude.ai artifact previews. Records then live only for the session; Export works.
 - `setAircraft` refuses while airborne. `startLevel` works around this by setting `S.crashed = true` before switching.

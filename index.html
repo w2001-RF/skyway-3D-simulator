@@ -897,6 +897,11 @@
       opacity: .7
     }
 
+    .mappick .dif {
+      font-style: normal;
+      letter-spacing: -1px
+    }
+
     #loading {
       position: fixed;
       inset: 0;
@@ -1661,14 +1666,14 @@
         id: 'alouette', name: 'Alouette', role: 'Avion école · aile haute · train fixe',
         stall: 22, vr: 26, thrust: 5.2, drag: 0.0016, gearDrag: 0, vne: 68, vle: 999,
         pitch: 1.0, roll: 1.5, yaw: 0.5, gMax: 4.4, stab: 1.8, ctlRate: 4,
-        fuelBase: 0.008, fuelThr: 0.09, retract: false, reverse: 0, xwind: 7, rpmMax: 2500, snd: 0.9,
+        fuelBase: 0.008, fuelThr: 0.09, retract: false, reverse: 0, xwind: 7, rpmMax: 2500, snd: 0.9, cap: { pax: 1, kg: 120 },
         look: { span: 11, chord: 1.7, wingY: 0.75, len: 7, r: 0.75, body: '#f7f3e8', stripe: '#2f7d3b', pin: '#f2c14e', wing: 0x2f7d3b }
       },
       sirocco: {
         id: 'sirocco', name: 'Sirocco', role: 'Tourisme · aile basse · train rentrant',
         stall: 28, vr: 32, thrust: 7, drag: 0.0011, gearDrag: 0.35, vne: 88, vle: 58,
         pitch: 1.1, roll: 1.9, yaw: 0.45, gMax: 4.4, stab: 1.3, ctlRate: 5,
-        fuelBase: 0.012, fuelThr: 0.16, retract: true, reverse: 0.35, xwind: 9, rpmMax: 2700, snd: 1.0,
+        fuelBase: 0.012, fuelThr: 0.16, retract: true, reverse: 0.35, xwind: 9, rpmMax: 2700, snd: 1.0, cap: { pax: 3, kg: 350 },
         look: { span: 13, chord: 2.2, wingY: -0.25, len: 8, r: 0.85, body: '#f4f1ea', stripe: '#c8372d', pin: '#1e3a8a', wing: 0xc8372d }
       },
       faucon: {
@@ -1682,8 +1687,15 @@
         id: 'atlas', name: 'Atlas', role: 'Cargo bimoteur · lourd · stable',
         stall: 34, vr: 40, thrust: 6.8, drag: 0.0007, gearDrag: 0.3, vne: 105, vle: 72,
         pitch: 0.7, roll: 0.9, yaw: 0.3, gMax: 3.5, stab: 1.8, ctlRate: 2.5,
-        fuelBase: 0.02, fuelThr: 0.2, retract: true, reverse: 0.6, xwind: 12, rpmMax: 2400, snd: 0.75,
+        fuelBase: 0.02, fuelThr: 0.2, retract: true, reverse: 0.6, xwind: 12, rpmMax: 2400, snd: 0.75, cap: { pax: 8, kg: 4500 },
         look: { span: 20, chord: 2.8, wingY: 0.95, len: 13, r: 1.15, body: '#dfe6ee', stripe: '#1e3a8a', pin: '#5ad1ff', wing: 0xdfe6ee, twin: true, ttail: true }
+      },
+      mistral: {
+        id: 'mistral', name: 'Mistral', role: 'Avion de ligne biréacteur · 70 passagers',
+        stall: 46, vr: 56, thrust: 13, drag: 0.00038, gearDrag: 0.3, vne: 205, vle: 92, vfe: 88,
+        pitch: 0.55, roll: 0.75, yaw: 0.25, gMax: 2.8, stab: 2.0, ctlRate: 2.2,
+        fuelBase: 0.012, fuelThr: 0.11, retract: true, reverse: 0.55, xwind: 15, rpmMax: 9200, snd: 1.5, cap: { pax: 70, kg: 2500 },
+        look: { span: 24, chord: 3.0, wingY: -0.45, len: 21, r: 1.2, body: '#f4f6f8', stripe: '#1d4ed8', pin: '#f59e0b', wing: 0xd5dbe3, twin: true, fan: true, pax: true }
       },
     };
     const vmaxOf = a => Math.sqrt(a.thrust / (a.drag * (1 + (a.retract ? 0 : a.gearDrag))));
@@ -1783,7 +1795,7 @@
           { id: 'EST', name: "Plaine de l'Est", x: -6250, z: 600, h: -0.52, y: 'auto' },
           { id: 'COT', name: 'Port-Côte', x: 4900, z: -4800, h: -0.26, y: 'auto' },
           { id: 'CIM', name: 'Altiport des Cimes', x: -4100, z: 8250, h: -1.05, y: 'auto' },
-          { id: 'PA1', name: 'Porte-avions Albatros', x: 8000, z: 300, h: Math.PI / 2, carrier: true },
+          { id: 'PA1', name: 'Porte-avions Albatros', x: 8000, z: 300, h: 0, carrier: true },   // parallèle à la côte : approche et catapulte au-dessus de la mer
         ],
         lakes: [{ x: -2250, z: 950, r: 240, y: 0 }, { x: 1250, z: -1250, r: 160, y: 0 }, { x: -4800, z: 3900, r: 320 }],
         road: { x: 90, len: 3000 },
@@ -1861,7 +1873,15 @@
         }
       },
     };
-    const MAP_ORDER = ['vallee', 'alpes', 'archipel', 'canyon'];
+    // Cartes classées de la plus facile à la plus difficile (relief, distances, altitude des terrains, densité de l'air)
+    const MAP_ORDER = ['vallee', 'archipel', 'canyon', 'alpes'];
+    const MAP_DIFF = {
+      vallee: { lvl: 1, note: 'relief doux, 7 aérodromes proches au niveau de la mer, porte-avions' },
+      archipel: { lvl: 2, note: "terrains courts sur des îles éloignées, peu d'endroits où se poser hors piste" },
+      canyon: { lvl: 3, note: 'plateau à 400 m (air moins porteur), mesas et gorges à suivre en rase-mottes' },
+      alpes: { lvl: 4, note: "sommets à 3 000 m, vallées étroites, altiport à 1 700 m où l'avion décolle mal" },
+    };
+    const DIFF_NAMES = ['', 'Facile', 'Moyen', 'Difficile', 'Expert'], DIFF_COLS = ['', '#5bf08a', '#5ad1ff', '#ffb547', '#ff4d4d'];
 
     function segDist(px, pz, ax, az, bx, bz, out) {
       const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
@@ -3179,7 +3199,7 @@
     const upperY = (f, h) => (0.5 - 0.5 * f) * h, lowerY = (f, h) => (0.5 + 0.5 * f) * h;
 
     // ════════════════════════ Avions civils ════════════════════════
-    const REGS = { alouette: 'F-GALO', sirocco: 'F-HSRC', faucon: 'F-AFCN', atlas: 'F-RATL' };
+    const REGS = { alouette: 'F-GALO', sirocco: 'F-HSRC', faucon: 'F-AFCN', atlas: 'F-RATL', mistral: 'F-WMST', condor: '62-CD' };
     function paintCivilBody(ac, sec, ex, o) {
       const L = ac.look, reg = REGS[ac.id] || 'F-XSKY', dark = luma(L.body) < 0.45;
       return skinTex(512, 512, (g, b, w, h) => {
@@ -3211,15 +3231,24 @@
           g.fillStyle = sg; g.fillRect(sx - w * 0.05, Y(o.cowl + 0.3), w * 0.1, Y(o.cowl - 3) - Y(o.cowl + 0.3));
         }
         if (o.twin) {   // hublots cabine, bande antireflet devant le pare-brise, porte cargo, titres
+          // hublots : rangée serrée sur l'avion de ligne (L.pax), 7 sur le cargo, 3 sur le bombardier (L.mil)
+          const wn = L.pax ? Math.floor((o.cabin - 0.8 - (o.tailZ + 1.6)) / 0.52) : L.mil ? 3 : 7, wsp = L.pax ? 0.52 : 0.78;
           for (const sd of [1, -1]) {
-            for (let z = o.cabin - 0.6, i = 0; i < 7; z -= 0.78, i++) side(g, sd, z, 0.32, c => {
+            for (let z = o.cabin - (L.pax ? 1.1 : 0.6), i = 0; i < wn; z -= wsp, i++) side(g, sd, z, L.pax ? 0.28 : 0.32, c => {
               c.fillStyle = '#16202a'; rrect(c, -0.14, -0.17, 0.28, 0.34, 0.1); c.fill();
               c.fillStyle = 'rgba(160,200,230,.35)'; rrect(c, -0.11, -0.15, 0.2, 0.1, 0.05); c.fill();
             });
             if (ac.id === 'atlas') side(g, sd, o.cabin - 1.6, -0.05, c => { c.translate(-0.95, 0); mText(c, 'ATLAS', 0.42, '#1f2937'); c.translate(1.85, 0); mText(c, 'FRET', 0.42, '#d63031'); });
+            if (L.pax) {
+              side(g, sd, o.cabin - 6, 0.62, c => mText(c, 'SKYWAY', 0.62, L.stripe));
+              for (const zd of [o.cabin - 0.45, o.tailZ + 1.1]) for (const t of [g, b]) side(t, sd, zd, 0.05, c => { c.strokeStyle = t === g ? 'rgba(0,0,0,.45)' : '#3c3c3c'; c.lineWidth = 0.03; rrect(c, -0.42, -0.85, 0.84, 1.7, 0.12); c.stroke(); });
+            }
+            if (L.mil) side(g, sd, o.cabin - 2.6, 0.05, c => { c.scale(1, -1); roundel(c, 0.5, ['#1e3a8a', '#f4f4f4', '#c8372d']); });
           }
-          side(g, 1, -o.len * 0.18, -0.05, c => { c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 0.025; c.strokeRect(-0.8, -0.7, 1.6, 1.4); });
-          side(b, 1, -o.len * 0.18, -0.05, c => { c.strokeStyle = '#3c3c3c'; c.lineWidth = 0.03; c.strokeRect(-0.8, -0.7, 1.6, 1.4); });
+          if (!L.pax) {
+            side(g, 1, -o.len * 0.18, -0.05, c => { c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 0.025; c.strokeRect(-0.8, -0.7, 1.6, 1.4); });
+            side(b, 1, -o.len * 0.18, -0.05, c => { c.strokeStyle = '#3c3c3c'; c.lineWidth = 0.03; c.strokeRect(-0.8, -0.7, 1.6, 1.4); });
+          }
           g.fillStyle = 'rgba(25,28,32,.9)'; g.fillRect(w * 0.4, Y(o.glare[1]), w * 0.2, Y(o.glare[0]) - Y(o.glare[1]));
         } else {   // porte cabine (flanc gauche) et poignée
           side(g, 1, o.cabinMid, 0.15, c => { c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 0.02; c.strokeRect(-0.45, -0.42, 0.9, 0.84); c.fillStyle = '#9aa0a6'; c.fillRect(0.25, 0.02, 0.12, 0.04); });
@@ -3227,7 +3256,7 @@
         }
         // Immatriculation sur les deux flancs, en arrière de l'aile
         const zr = (o.tailZ + o.wingTE) / 2, hr = clamp(secAt(sec, zr)[2] * 0.62, 0.22, 0.55);
-        for (const sd of [1, -1]) side(g, sd, zr, 0.05, c => mText(c, reg, hr, dark ? '#f2f2f2' : '#1c2128'));
+        for (const sd of [1, -1]) side(g, sd, zr, L.pax ? -0.62 : 0.05, c => mText(c, reg, L.pax ? hr * 0.6 : hr, dark ? '#f2f2f2' : '#1c2128'));   // liner : sous la rangée de hublots
         // Lignes de panneaux (cadres et lisses) et rivets
         for (let z = F.z0 + 0.5; z < F.z1 - 0.4; z += 0.82) seam(g, b, 0, Y(z), w, Y(z), 4);
         for (const u of [0.17, 0.33, 0.67, 0.83]) seam(g, b, u * w, Y(o.cowl !== null ? o.cowl : F.z1), u * w, h, 0);
@@ -3408,6 +3437,18 @@
         for (const sd of [-1, 1]) K.add(rbox(0.17 * r, 0.13 * r, 0.04, 0.02), A.hole, sd * 0.5 * r, -0.05 * r, zn + 0.005);
         K.add(rbox(0.36 * r, 0.12 * r, 0.32, 0.03), A.rubber, 0, -0.66 * r, zn - 0.3);
         for (const dz of [0, 0.16]) rod(K, A.steel, V3(-0.42 * r, -0.55 * r, len / 2 + 0.25 + dz), V3(-0.47 * r, -0.78 * r, len / 2 + 0.05 + dz), 0.035);
+      } else if (L.fan) for (const sd of [-1, 1]) {
+        // réacteur double flux sous l'aile : nacelle, lèvre d'entrée, soufflante et cône, tuyère et cône d'éjection, mât
+        const nx = sd * s * 0.36, wy = L.wingY + W.dih * s * 0.36, nr = 0.6, ny = wy - 0.85, zl = W.le(0.36), zf = zl + 1.3;
+        const ns = smoothSec([[zf, .86, .86, 0], [zf - .3, 1, 1, 0], [zf - 1.7, .97, .97, 0], [zf - 2.8, .76, .76, 0], [zf - 3.3, .58, .58, 0]].map(([z, a, b, y]) => [z, a * nr, b * nr, y]), 3);
+        K.add(loftGeo(ns, 24, 2, 0, 1, false), trimB, nx, ny, 0);
+        K.add(loftGeo([[zf + 0.01, nr * 0.87, nr * 0.87, 0], [zf - 0.12, nr * 0.8, nr * 0.8, 0]], 24, 2, 0, 1, false), A.chrome, nx, ny, 0);
+        K.add(loftGeo(ns.filter(q => q[0] < zf - 1.75).map(q => [q[0], q[1] * 1.01, q[2] * 1.01, 0]), 24, 2, 0, 1, false), trimA, nx, ny, 0);
+        K.add(new THREE.CircleGeometry(nr * 0.82, 24), A.hole, nx, ny, zf - 0.45);
+        K.add(new THREE.ConeGeometry(nr * 0.26, nr * 0.55, 16), A.steel, nx, ny, zf - 0.2, Math.PI / 2);
+        K.add(new THREE.CircleGeometry(nr * 0.56, 20), A.soot, nx, ny, zf - 3.25, 0, Math.PI, 0);
+        K.add(new THREE.ConeGeometry(nr * 0.32, 0.9, 16), A.steel, nx, ny, zf - 3.55, -Math.PI / 2);
+        K.add(foilGeo([{ p: V3(nx, ny + nr * 0.8, zf - 0.7), c: 2.3, t: 0.14, u: 0.5, cd: NZ, td: AX }, { p: V3(nx, wy - 0.02, zl + 0.15), c: 2.5, t: 0.14, u: 0.5, cd: NZ, td: AX }], 0, 1, 6), trimB);
       } else for (const sd of [-1, 1]) {
         const nx = sd * span * 0.27, ny = L.wingY - 0.15, nz1 = wingZ + c * 0.35 + 1.5;
         const ns = smoothSec([[wingZ - c * 0.85, .1, .16, .22], [wingZ - c * .2, .4, .5, .1], [wingZ + c * .3, .5, .58, 0], [nz1 - .5, .47, .5, 0], [nz1, .36, .36, 0]], 3);
@@ -3429,8 +3470,8 @@
       root.add(glowPts([bcn.concat(0xff2020), [0, secAt(sec, 0)[3] - secAt(sec, 0)[2] - 0.05, 0, 0xff2020]], 1.6, 'beacon'));
 
       // ── Train d'atterrissage (pivots animés pour la rentrée) : jambes, compas, fourches, trappes ou carénages
-      const mx = twin ? span * 0.27 : Math.max(1.3, r * 1.6);
-      const mainTop = twin ? L.wingY - 0.6 : (high ? -r * 0.6 : L.wingY - 0.1);
+      const mx = L.fan ? r * 1.65 : twin ? span * 0.27 : Math.max(1.3, r * 1.6);
+      const mainTop = L.fan ? L.wingY - 0.1 : twin ? L.wingY - 0.6 : (high ? -r * 0.6 : L.wingY - 0.1);
       for (const [x, z, top, sd] of [[0, len * (twin ? 0.4 : 0.36), -r * 0.6, 0], [-mx, wingZ + 0.15, mainTop, -1], [mx, wingZ + 0.15, mainTop, 1]]) {
         const piv = new THREE.Group(); piv.position.set(x, top, z); piv.userData.part = 'gear'; root.add(piv);
         const GK = kit(); gearLeg(GK, A, top + 1.25, sd, !!ac.retract, trimB, ac.retract ? null : trimW); GK.build(piv);
@@ -4088,7 +4129,7 @@
           : { x: dest.x, z: dest.z, y: dest.y, name: `${dest.id} · ${dest.name}`, apt: true, ap: dest };
         from = mission.idx === 0 ? apById(mission.from) : mission.wps[mission.idx - 1];
       } else {
-        const ap = nearestAirport(px, pz);
+        const ap = NAV.lock || nearestAirport(px, pz);                   // NAV.lock : terrain imposé (leçons de l'école)
         target = { x: ap.x, z: ap.z, y: ap.y, name: `${ap.id} · ${ap.name}`, apt: true, ap };
       }
       const dx = target.x - px, dz = target.z - pz, dist = Math.hypot(dx, dz);
@@ -4579,8 +4620,8 @@
     function fillAirportSelects() {
       const opts = AIRPORTS.map(a => `<option value="${a.id}">${a.carrier ? '⚓ ' : ''}${a.id} · ${esc(a.name)}${a.y > 50 && !a.carrier ? ` (${Math.round(a.y)} m)` : ''}</option>`).join('');
       $('pFrom').innerHTML = opts; $('pTo').innerHTML = opts;
-      $('mapPick').innerHTML = MAP_ORDER.map(id => `<button data-map="${id}" class="${MAP && MAP.id === id ? 'on' : ''}">${MAPS[id].name}<small>${Math.round(MAPS[id].world / 500)} km</small></button>`).join('');
-      setText('mapDesc', MAP ? MAP.desc : '');
+      $('mapPick').innerHTML = MAP_ORDER.map(id => { const d = MAP_DIFF[id].lvl; return `<button data-map="${id}" class="${MAP && MAP.id === id ? 'on' : ''}">${MAPS[id].name}<small><i class="dif" style="color:${DIFF_COLS[d]}">${'●'.repeat(d)}${'○'.repeat(4 - d)}</i> ${DIFF_NAMES[d]} · ${Math.round(MAPS[id].world / 500)} km</small></button>`; }).join('');
+      setText('mapDesc', MAP ? `${DIFF_NAMES[MAP_DIFF[MAP.id].lvl]} : ${MAP_DIFF[MAP.id].note}. ${MAP.desc}` : '');
     }
     function renderPlan() {
       $('pFrom').value = plan.from; $('pTo').value = plan.to;
@@ -5292,8 +5333,8 @@
 
     .cbw {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 5px;
       margin: 8px 0
     }
 
@@ -5358,6 +5399,11 @@
       opacity: .5
     }
 
+    .lvlsec {
+      grid-column: 1 / -1;
+      margin: 4px 0 0
+    }
+
     .lvl h4 {
       margin: 0;
       font-size: 18px;
@@ -5415,6 +5461,7 @@
       <div><span class="lbl">Canon</span><b id="cbGun">0</b></div>
       <div><span class="lbl">Missiles</span><b id="cbMsl">0</b></div>
       <div><span class="lbl">Leurres</span><b id="cbFlr">0</b></div>
+      <div><span class="lbl">Bombes</span><b id="cbBmb">0</b></div>
       <div><span class="lbl">Score</span><b id="cbScore">0</b></div>
     </div>
     <div class="srow"><span>Cible</span><b class="val" id="cbTgt">—</b></div>
@@ -5441,6 +5488,7 @@
             <div class="srow"><span><kbd>V</kbd></span><b>Missile (verrouiller d'abord)</b></div>
             <div class="srow"><span><kbd>Tab</kbd></span><b>Cible suivante</b></div>
             <div class="srow"><span><kbd>B</kbd></span><b>Leurres</b></div>
+            <div class="srow"><span><kbd>Espace</kbd> / <kbd>Entrée</kbd> en vol</span><b>Bombe (viser avec le cercle CCIP)</b></div>
             <div class="srow"><span><kbd>Maj</kbd> + plein gaz</span><b>Postcombustion</b></div>
             <div class="srow"><span><kbd>J</kbd></span><b>Campagne</b></div>
           </div>
@@ -5462,23 +5510,31 @@
           id: 'epervier', name: 'Épervier', role: "Chasseur delta à canards · très agile",
           stall: 50, vr: 60, thrust: 26, drag: 0.00045, vne: 320, vle: 95, pitch: 1.9, roll: 4.6, yaw: 0.6, gMax: 9, stab: 1.2,
           fuelBase: 0.015, fuelThr: 0.2, ab: 1.45,
-          mil: { guns: 500, missiles: 4, flares: 24, armor: 1.0, gunDmg: 9 },
+          mil: { guns: 500, missiles: 4, flares: 24, armor: 1.0, gunDmg: 9, bombs: 2 },
           look: { len: 13, r: 0.85, span: 9, wingY: -0.15, delta: true, body: '#8a96a3', stripe: '#2b3440', pin: '#d0a24a', wing: 0x7d8995 }
         }),
         harfang: JET({
           id: 'harfang', name: 'Harfang', role: "Multirôle bi-dérive · 6 missiles",
           stall: 55, vr: 66, thrust: 25, drag: 0.00042, vne: 330, vle: 95, pitch: 1.5, roll: 3.3, yaw: 0.5, gMax: 9, stab: 1.4,
           fuelBase: 0.014, fuelThr: 0.18, ab: 1.4,
-          mil: { guns: 450, missiles: 6, flares: 30, armor: 1.3, gunDmg: 9 },
+          mil: { guns: 450, missiles: 6, flares: 30, armor: 1.3, gunDmg: 9, bombs: 4 },
           look: { len: 15, r: 0.95, span: 11, wingY: -0.2, twinTail: true, body: '#6d7660', stripe: '#3c4234', pin: '#c2b280', wing: 0x646d57 }
         }),
         titan: JET({
           id: 'titan', name: 'Titan', role: "Appui-feu blindé · canon lourd",
           stall: 40, vr: 48, thrust: 14, drag: 0.0005, vne: 230, vle: 90, pitch: 1.2, roll: 2.2, yaw: 0.45, gMax: 7, stab: 1.6,
           fuelBase: 0.012, fuelThr: 0.15, ab: 1.25, snd: 1.7,
-          mil: { guns: 1100, missiles: 4, flares: 30, armor: 2.2, gunDmg: 14 },
+          mil: { guns: 1100, missiles: 4, flares: 30, armor: 2.2, gunDmg: 14, bombs: 10 },
           look: { len: 14, r: 1.0, span: 15, wingY: -0.1, straight: true, twinTail: true, pods: true, body: '#55604f', stripe: '#2f3a2c', pin: '#e0c060', wing: 0x5b6655 }
         }),
+        // Bombardier bimoteur à hélices (modèle civil bimoteur, livrée militaire) : soute de 16 bombes, mitrailleuse, pas de missiles
+        condor: {
+          id: 'condor', name: 'Condor', role: 'Bombardier bimoteur · 16 bombes',
+          stall: 36, vr: 44, thrust: 8, drag: 0.0006, gearDrag: 0.3, vne: 140, vle: 80, pitch: 0.75, roll: 1.0, yaw: 0.35, gMax: 4, stab: 1.7, ctlRate: 3,
+          fuelBase: 0.015, fuelThr: 0.17, retract: true, reverse: 0.3, xwind: 12, rpmMax: 2600, snd: 0.85, ab: 1, baseThrust: 8, baseFuelThr: 0.17,
+          mil: { guns: 600, missiles: 0, flares: 24, armor: 1.6, gunDmg: 7, bombs: 16 },
+          look: { span: 22, chord: 3.0, wingY: 1.0, len: 15, r: 1.2, body: '#4b5545', stripe: '#2f3a2c', pin: '#d0a24a', wing: 0x4b5545, twin: true, mil: true }
+        },
       });
       const ENEMY_JET = { look: { len: 12.5, r: 0.85, span: 9.5, wingY: -0.15, body: '#2f3238', stripe: '#9e1b1f', pin: '#ff4d4d', wing: 0x34373e }, mil: { missiles: 2 } };
       const ACE_JET = { look: { len: 14, r: 0.9, span: 10.5, wingY: -0.15, twinTail: true, body: '#121316', stripe: '#c9a227', pin: '#ffd34d', wing: 0x18191c }, mil: { missiles: 4 } };
@@ -5802,7 +5858,7 @@
       loadMap = function (id) { if (CB.active) endCombat(); cleanup(); CB.failed = false; return _loadMap(id); };
 
       const _reset = resetFlight;
-      resetFlight = function () { if (CB.active || CB.failed) startLevel(CB.level); else _reset(); };
+      resetFlight = function () { if (CB.custom && CB.active) startCustom(CB.custom); else if (CB.active || CB.failed) startLevel(CB.level); else _reset(); };
 
       const _updateCamera = updateCamera;
       updateCamera = function (dt) {
@@ -5848,7 +5904,7 @@
         for (const a of Object.values(AIRCRAFT)) if (a.mil) {
           const btn = document.querySelector(`#acGrid [data-ac="${a.id}"]`);
           if (btn) btn.insertAdjacentHTML('beforebegin',
-            `<div class="srow"><span>Armement</span><b class="val">${a.mil.guns} obus · ${a.mil.missiles} mis. · ${a.mil.flares} leurres</b></div>
+            `<div class="srow"><span>Armement</span><b class="val">${a.mil.guns} obus · ${a.mil.missiles} mis. · ${a.mil.bombs || 0} bombes · ${a.mil.flares} leurres</b></div>
        <div class="srow"><span>Blindage · postcomb.</span><b class="val">×${a.mil.armor} · ×${a.ab}</b></div>`);
         }
       };
@@ -5873,7 +5929,27 @@
         aaa: { label: 'DCA', hp: 60, r: 6, value: 200 },
         sam: { label: 'Site SAM', hp: 90, r: 7, value: 350 },
         radar: { label: 'Radar', hp: 120, r: 9, value: 500 },
+        // gunK : efficacité du canon (blindés et dépôts : préférer les bombes)
+        inf: { label: 'Infanterie', hp: 30, r: 10, value: 120 },
+        tank: { label: 'Char', hp: 160, r: 6, value: 350, gunK: 0.25 },
+        depot: { label: 'Dépôt', hp: 180, r: 16, value: 400, gunK: 0.4 },
       };
+      // Groupe de 8 fantassins (une géométrie, couleurs par sommet) ; char et dépôt en pièces simples
+      const SQUAD_GEO = (() => {
+        const parts = [], R = mulberry32(7);
+        for (let i = 0; i < 8; i++) {
+          const x = (R() - 0.5) * 12, z = (R() - 0.5) * 12, yaw = R() * 6.28;
+          const P = (g, hex, y) => parts.push(colorize(g, hex).rotateY(yaw).translate(x, y, z));
+          P(new THREE.BoxGeometry(0.5, 0.8, 0.32), 0x4d5a3a, 1.05); P(new THREE.BoxGeometry(0.42, 0.75, 0.28), 0x3d4630, 0.38);
+          P(new THREE.SphereGeometry(0.17, 8, 6), 0xc8a07a, 1.62); P(new THREE.SphereGeometry(0.2, 8, 5, 0, 6.29, 0, 1.6), 0x2f3a28, 1.7);
+          P(new THREE.BoxGeometry(0.06, 0.06, 0.9).translate(0.28, 0, 0.2), 0x1d1f21, 1.1);
+        }
+        return (BGU && BGU.mergeBufferGeometries(parts)) || parts[0];
+      })();
+      const SQUAD_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: true });
+      const TANKM = new THREE.MeshStandardMaterial({ color: 0x4a5536, roughness: 0.8, metalness: 0.2, flatShading: true });
+      const TRACKM = new THREE.MeshStandardMaterial({ color: 0x1f2124, roughness: 0.9 });
+      const TANKC = new THREE.MeshStandardMaterial({ color: 0xc9ccc4, roughness: 0.5, metalness: 0.3 });
       function put(parent, mesh, x, y, z) { mesh.position.set(x, y, z); mesh.castShadow = true; parent.add(mesh); return mesh; }
       const bx = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
       const cyl = (r1, r2, h, m, seg = 10) => new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, seg), m);
@@ -5905,6 +5981,20 @@
             for (const [x, y] of [[-0.45, -0.35], [0.45, -0.35], [-0.45, 0.35], [0.45, 0.35]]) { const t = put(rack, cyl(0.3, 0.3, 4, OLIVE, 10), x, y, 0.8); t.rotation.x = H90; }
             ref.turret = tur; break;
           }
+          case 'inf': { const m = new THREE.Mesh(SQUAD_GEO, SQUAD_MAT); m.castShadow = true; g.add(m); break; }
+          case 'tank': {
+            put(g, bx(3.2, 1.0, 6.4, TANKM), 0, 1.15, 0);
+            for (const sx of [-1.75, 1.75]) put(g, bx(0.75, 1.0, 6.6, TRACKM), sx, 0.55, 0);
+            const tur = new THREE.Group(); tur.position.y = 1.65; g.add(tur);
+            put(tur, bx(2.2, 0.8, 2.8, TANKM), 0, 0.4, -0.2);
+            const gun = put(tur, cyl(0.12, 0.14, 4.2, DARKM, 8), 0, 0.45, 3.1); gun.rotation.x = H90;
+            ref.turret = tur; break;
+          }
+          case 'depot': {
+            for (const [x, z] of [[-6, -4], [0, 5], [6, -3]]) { put(g, cyl(3, 3, 4.2, TANKC, 16), x, 2.1, z); put(g, cyl(3.05, 3.05, 0.25, DARKM, 16), x, 4.25, z); }
+            put(g, bx(7, 3.2, 5, OLIVE), -1, 1.6, -11); put(g, bx(7.4, 0.3, 5.4, DARKM), -1, 3.3, -11);
+            break;
+          }
           case 'radar': {
             put(g, bx(4, 2, 4, OLIVE), 0, 1, 0); put(g, cyl(0.3, 0.4, 6, DARKM, 8), 0, 5, 0);
             const dish = new THREE.Group(); dish.position.y = 8; g.add(dish);
@@ -5918,7 +6008,7 @@
       function spawnUnit(kind, o) {
         const u = UNIT[kind], b = buildUnit(kind), mesh = b.mesh;
         const e = {
-          kind, label: u.label, hp: u.hp, maxHp: u.hp, r: u.r, value: u.value, air: !!u.air, alive: true, mesh, pos: mesh.position,
+          kind, label: u.label, hp: u.hp, maxHp: u.hp, r: u.r, value: u.value, air: !!u.air, alive: true, mesh, pos: mesh.position, gunK: u.gunK || 1,
           vel: V(), fwd: new THREE.Vector3(0, 0, 1), speed: 0, cruise: 0, bank: 0, skill: o.skill ?? 0.4, gunCd: rnd(0.5, 2), mslCd: rnd(6, 12),
           msl: o.msl || 0, turret: b.turret, dish: b.dish, data: o, evade: 0, off: rnd(-70, 70)
         };
@@ -5953,6 +6043,10 @@
           } else {
             e.pos.set(x, ground, z);
             if (sp.kind === 'truck') { e.mesh.rotation.y = Math.PI; e.speed = sp.speed || 10; }
+            else if (sp.march) {   // colonne en marche vers sp.march, chacun garde son décalage dans la formation
+              e.march = { x: sp.march[0] + x - sp.at[0], z: sp.march[1] + z - sp.at[1] }; e.speed = sp.speed || 2;
+              e.mesh.rotation.y = Math.atan2(e.march.x - x, e.march.z - z);
+            } else e.mesh.rotation.y = rnd(0, 6.28);
           }
         }
       }
@@ -6058,9 +6152,22 @@
       function groundAI(e, dt) {
         if (e.kind === 'truck') { e.pos.z -= e.speed * dt; e.vel.set(0, 0, -e.speed); return; }
         if (e.kind === 'radar') { e.dish.rotation.y += dt * 1.5; return; }
+        if (e.march && !e.arrived) {   // marche sur le relief vers l'objectif
+          const mx = e.march.x - e.pos.x, mz = e.march.z - e.pos.z, md = Math.hypot(mx, mz);
+          if (md < 40) { e.arrived = true; e.vel.set(0, 0, 0); }
+          else {
+            e.vel.set(mx / md * e.speed, 0, mz / md * e.speed);
+            e.pos.x += e.vel.x * dt; e.pos.z += e.vel.z * dt; e.pos.y = terrainHeight(e.pos.x, e.pos.z);
+            e.mesh.rotation.y = Math.atan2(mx, mz);
+          }
+        }
         if (S.crashed) return;
         const dx = plane.position.x - e.pos.x, dz = plane.position.z - e.pos.z, dist = e.pos.distanceTo(plane.position);
-        if (e.turret && dist < 4000) e.turret.rotation.y = Math.atan2(dx, dz);
+        if (e.turret && dist < 4000) e.turret.rotation.y = Math.atan2(dx, dz) - e.mesh.rotation.y;
+        if (e.kind === 'inf' && dist < 650 && S.agl < 350) {   // armes légères contre les avions qui passent bas
+          e.gunCd -= dt;
+          if (e.gunCd <= 0) { _e.copy(e.pos).add(_d.set(0, 1.5, 0)); fireBullet('enemy', _e, aimAt(_e, 500, 0.07, _h), 500, 1.5); e.gunCd = Math.random() < 0.2 ? 1.5 : 0.25; }
+        }
         if (e.kind === 'aaa' && dist < 1700) {
           e.gunCd -= dt;
           if (e.gunCd <= 0) {
@@ -6126,7 +6233,7 @@
           if (b.owner === 'player') {
             for (const e of CB.enemies) {
               if (!e.alive) continue;
-              if (segHit(prev, b.m.position, center(e), e.r)) { damageEnemy(e, b.dmg, b.m.position); CB.hits++; CB.hitFlash = 0.15; hit = true; break; }
+              if (segHit(prev, b.m.position, center(e), e.r)) { damageEnemy(e, b.dmg * e.gunK, b.m.position); CB.hits++; CB.hitFlash = 0.15; hit = true; break; }
             }
           } else if (!S.crashed && segHit(prev, b.m.position, plane.position, 6)) { damagePlayer(b.dmg); hit = true; }
           if (!hit && b.m.position.y < groundAt(b.m.position.x, b.m.position.z)) { spark(b.m.position, 0xc9b28a); hit = true; }
@@ -6223,6 +6330,63 @@
           f.puffT -= dt; if (f.puffT <= 0) { puff(f.pos, 0xffffff, 0.8, 0.8); f.puffT = 0.05; }
           if (f.life <= 0) { f.alive = false; scene.remove(f.m); CB.flares.splice(i, 1); }
         }
+      }
+      // Bombes : larguées avec la vitesse de l'avion, chute avec un léger freinage, souffle de 38 m sur les unités au sol
+      const BOMB_GEO = (() => {
+        const parts = [colorize(new THREE.CylinderGeometry(0.2, 0.2, 1.5, 12).rotateX(H90), 0x4b5440), colorize(new THREE.SphereGeometry(0.2, 12, 8).scale(1, 1, 1.8).translate(0, 0, 0.75), 0x4b5440),
+          colorize(new THREE.ConeGeometry(0.2, 0.55, 12).rotateX(-H90).translate(0, 0, -1.02), 0x3a4032), colorize(new THREE.CylinderGeometry(0.205, 0.205, 0.08, 12).rotateX(H90).translate(0, 0, 0.45), 0xe0c060)];
+        for (let k = 0; k < 4; k++) parts.push(colorize(new THREE.BoxGeometry(0.02, 0.5, 0.36).translate(0, 0.22, -1.05).rotateZ(k * H90 + Math.PI / 4), 0x3a4032));
+        return (BGU && BGU.mergeBufferGeometries(parts)) || parts[0];
+      })();
+      const BOMB_MAT = envMat({ color: 0xffffff, roughness: 0.55, metalness: 0.25, vertexColors: true }, 0.5);
+      const BOMB_R = 38, BOMB_DRAG = 0.015;
+      function bombStart(out, vOut) {   // point et vitesse de largage : sous le fuselage (bombardier) ou sous les ailes en alternance
+        const side = AC.look.twin ? 0 : (CB.bombs % 2 ? 1 : -1);
+        out.set(side * AC.look.span * 0.18, -AC.look.r - 0.5, 0).applyQuaternion(plane.quaternion).add(plane.position);
+        vOut.copy(S.vel).add(_g.set(0, -1.5, 0));
+      }
+      function dropBomb() {
+        if (!CB.active || !AC.mil || S.crashed || S.onGround) return;
+        if (!(CB.bombs > 0)) { toast(AC.mil.bombs ? 'Plus de bombes' : `${AC.name} : pas de bombes`, 'caution'); return; }
+        const m = new THREE.Mesh(BOMB_GEO, BOMB_MAT), v = V();
+        bombStart(m.position, v); CB.bombs--;
+        scene.add(m); m.lookAt(_l.copy(m.position).add(v));
+        CB.bombsLive.push({ m, v, t: 0 });
+        Snd.beep(200, 0.08, 0.05);
+      }
+      function updateBombs(dt) {
+        for (let i = CB.bombsLive.length - 1; i >= 0; i--) {
+          const b = CB.bombsLive[i], p = b.m.position; b.t += dt;
+          b.v.y -= 9.8 * dt; b.v.multiplyScalar(1 - BOMB_DRAG * dt); p.addScaledVector(b.v, dt);
+          b.m.lookAt(_l.copy(p).add(b.v));
+          const gy = groundAt(p.x, p.z);
+          if (p.y <= gy + 0.3) { p.y = gy; blast(p); scene.remove(b.m); CB.bombsLive.splice(i, 1); }
+          else if (b.t > 60) { scene.remove(b.m); CB.bombsLive.splice(i, 1); }
+        }
+      }
+      function blast(p) {
+        const wet = surfaceAt(p.x, p.z).water;
+        for (let k = 0; k < 14; k++) puff(_c.copy(p).add(_d.set(rnd(-8, 8), rnd(0, 10), rnd(-8, 8))), wet ? 0xeef4f8 : k < 6 ? 0xff8a2a : 0x4a4038, rnd(4, 8), rnd(0.8, 1.8));
+        if (!wet) { explode(p.clone()); CB.smokes.push({ pos: p.clone(), t: 6, k: 0 }); }
+        Snd.boom();
+        for (const e of CB.enemies) {
+          if (!e.alive || e.air) continue;
+          const d = Math.max(0, center(e).distanceTo(p) - e.r * 0.5);
+          if (d < BOMB_R) damageEnemy(e, 240 * Math.pow(1 - d / BOMB_R, 1.2) + (d < 2 ? 120 : 0), center(e));
+        }
+        const dp = plane.position.distanceTo(p);
+        if (!S.crashed && dp < 60) { damagePlayer(40 * (1 - dp / 60)); toast('Trop bas : éclats de votre propre bombe', 'warn'); }
+      }
+      // Point d'impact continu (CCIP) : même intégration que la bombe, pas de 0,05 s, jusqu'au sol
+      const _ci = V(), _cv = V();
+      function ccip() {
+        bombStart(_ci, _cv);
+        for (let t = 0; t < 45; t += 0.05) {
+          _cv.y -= 9.8 * 0.05; _cv.multiplyScalar(1 - BOMB_DRAG * 0.05); _ci.addScaledVector(_cv, 0.05);
+          const gy = groundAt(_ci.x, _ci.z);
+          if (_ci.y <= gy) { _ci.y = gy; return { p: _ci, t }; }
+        }
+        return null;
       }
       function damageEnemy(e, dmg, at) {
         e.hp -= dmg; spark(at, 0xffc060);
@@ -6361,23 +6525,51 @@
           { kind: 'fighter', n: 3, at: [-2900, 600], spread: 200, alt: 900, skill: 0.7, msl: 1, delay: 75 }],
           goals: [{ kinds: ['ace'], label: "Abattre l'Ombre" }, { kinds: ['fighter'], label: "Abattre les chasseurs" }], rtb: true
         },
+        // ── Série « Attaque au sol » (débloquée à part) : bombes (Espace / Entrée), point d'impact CCIP, canon contre l'infanterie
+        {
+          id: 7, track: 'sol', name: 'Dépôts de carburant', diff: 2, base: 'VAL', wx: 'calme', time: 480,
+          brief: "Trois dépôts de carburant ravitaillent l'ennemi à l'est de Vallée. Bombardez-les. Deux pièces de DCA défendent le site.",
+          tips: "Visez avec le cercle d'impact (CCIP) puis appuyez sur Espace. Larguez au-dessus de 150 m : trop bas, les éclats vous touchent. Condor ou Titan conseillés.",
+          spawn: [{ kind: 'depot', n: 3, at: [-2600, -1500], spread: 150 }, { kind: 'aaa', n: 2, at: [-2600, -1500], spread: 320 }],
+          goals: [{ kinds: ['depot'], label: 'Détruire les dépôts' }], rtb: true
+        },
+        {
+          id: 8, track: 'sol', name: 'Colonne blindée', diff: 3, base: 'VAL', wx: 'brise', time: 560,
+          brief: "Une colonne de chars et d'infanterie descend du nord vers la base Vallée. Arrêtez-la avant qu'elle n'atteigne la piste.",
+          tips: "Les chars résistent au canon : bombes. L'infanterie se mitraille au canon, mais elle tire sur les avions qui passent sous 350 m.",
+          spawn: [{ kind: 'tank', n: 5, at: [250, 3400], spread: 130, march: [60, 350], speed: 7 },
+          { kind: 'inf', n: 4, at: [450, 3250], spread: 220, march: [150, 450], speed: 1.8 },
+          { kind: 'aaa', n: 2, at: [300, 3100], spread: 250 }],
+          goals: [{ kinds: ['tank'], label: 'Détruire les chars' }, { kinds: ['inf'], label: "Neutraliser l'infanterie" }],
+          fail: 'reach', failMsg: 'Les chars ont atteint la base Vallée'
+        },
+        {
+          id: 9, track: 'sol', name: 'Tête de pont', diff: 4, base: 'LAC', wx: 'brise', time: 660,
+          brief: "L'ennemi s'est retranché au nord-est du Lac Bleu : infanterie, chars et dépôts, sous la protection de missiles sol-air. Nettoyez la position, puis rentrez.",
+          tips: "Détruisez les SAM d'abord (sous 60 m ils ne vous voient pas), puis bombardez chars et dépôts. Des chasseurs arrivent après 1 min 40.",
+          spawn: [{ kind: 'inf', n: 8, at: [-3200, 2600], spread: 450 }, { kind: 'tank', n: 3, at: [-3000, 2400], spread: 220 },
+          { kind: 'depot', n: 2, at: [-3350, 2900], spread: 120 }, { kind: 'sam', n: 2, at: [-3400, 2400], spread: 400 }, { kind: 'aaa', n: 2, at: [-3100, 2700], spread: 350 },
+          { kind: 'fighter', n: 2, at: [-600, 5200], spread: 150, alt: 800, skill: 0.5, delay: 100 }],
+          goals: [{ kinds: ['inf'], label: "Neutraliser l'infanterie" }, { kinds: ['tank'], label: 'Détruire les chars' }, { kinds: ['depot'], label: 'Détruire les dépôts' }], rtb: true
+        },
       ];
 
       const CB = {
         active: false, failed: false, level: 0, t: 0, hp: 100, ammo: 0, msl: 0, flr: 0, score: 0, kills: 0, shots: 0, hits: 0,
-        enemies: [], bullets: [], missiles: [], flares: [], puffs: [], smokes: [], pending: [], goals: [], rtb: null,
+        enemies: [], bullets: [], missiles: [], flares: [], puffs: [], smokes: [], pending: [], goals: [], rtb: null, bombs: 0, bombsLive: [], custom: null,
         target: null, lockT: 0, lockBeep: 0, warnBeep: 0, gunCd: 0, dmgFlash: 0, hitFlash: 0, shake: 0, radarDown: false, tDist: 0
       };
       const raw = Store.load() || {};
-      DB.combat = Object.assign({ unlocked: 1, best: {}, ac: 'epervier', start: 'base' }, raw.combat);
+      DB.combat = Object.assign({ unlocked: 1, unlockedSol: 1, best: {}, ac: 'epervier', start: 'base' }, raw.combat);
 
       function cleanup() {
         for (const e of CB.enemies) scene.remove(e.mesh);
         for (const b of CB.bullets) scene.remove(b.m);
         for (const m of CB.missiles) scene.remove(m.m);
         for (const f of CB.flares) scene.remove(f.m);
+        for (const b of CB.bombsLive) scene.remove(b.m);
         for (const p of CB.puffs) { scene.remove(p.m); p.m.material.dispose(); }
-        CB.enemies = []; CB.bullets = []; CB.missiles = []; CB.flares = []; CB.puffs = []; CB.smokes = []; CB.pending = [];
+        CB.enemies = []; CB.bullets = []; CB.missiles = []; CB.flares = []; CB.puffs = []; CB.smokes = []; CB.pending = []; CB.bombsLive = [];
         CB.target = null; CB.lockT = 0;
       }
       function airStart(a) {
@@ -6391,8 +6583,27 @@
         S.vel.set(Math.sin(h) * a.speed, 0, Math.cos(h) * a.speed); S.prevVel.copy(S.vel); S.va.copy(S.vel);
         snapCamera = true;
       }
+      // Deux séries débloquées séparément : supériorité aérienne (track absent) et attaque au sol (track 'sol')
+      const trackOf = L => L.track || 'air';
+      const trackIdx = i => LEVELS.slice(0, i).filter(L => trackOf(L) === trackOf(LEVELS[i])).length;
+      const isUnlocked = i => trackIdx(i) + 1 <= (trackOf(LEVELS[i]) === 'sol' ? DB.combat.unlockedSol : DB.combat.unlocked);
+      const nextInTrack = i => { for (let j = i + 1; j < LEVELS.length; j++) if (trackOf(LEVELS[j]) === trackOf(LEVELS[i])) return j; return null; };
+      const curL = () => CB.custom || LEVELS[CB.level];
+      // Niveau sur mesure (leçons de l'école) : mêmes unités et armes, sans briefing ni record ; L.onWin / L.onFail(raison)
+      function startCustom(L) {
+        cleanup();
+        const m = AC.mil || { guns: 0, missiles: 0, flares: 0, bombs: 0 };
+        Object.assign(CB, {
+          timeLimit: L.time || 0, active: true, failed: false, level: 0, custom: L, t: 0, hp: 100, ammo: m.guns, msl: m.missiles, flr: m.flares, bombs: m.bombs || 0,
+          score: 0, kills: 0, shots: 0, hits: 0, target: null, lockT: 0, rtb: null, radarDown: false, dmgFlash: 0, shake: 0, gunCd: 0
+        });
+        CB.pending = L.spawn.map(sp => Object.assign({ delay: 0 }, sp, { done: false }));
+        CB.goals = L.goals.map(g => Object.assign({}, g, { done: false, total: 0, left: 0 }));
+        CB.pending.forEach(sp => { if (sp.delay <= 0) { sp.done = true; spawnGroup(sp); } });
+        $('help').style.display = 'none'; $('cbPanel').style.display = 'block'; updatePanel();
+      }
       function startLevel(i) {
-        if (i + 1 > DB.combat.unlocked) return;
+        if (!isUnlocked(i)) return;
         if (MAP.id !== 'vallee') { switchMap('vallee', () => startLevel(i)); return; }   // la campagne se joue sur la Vallée
         const L = LEVELS[i], cv = DB.combat.start === 'carrier' ? CARRIERS[0] : null;
         closeAllModals(); cleanup();
@@ -6408,7 +6619,7 @@
         const m = AC.mil;
         Object.assign(CB, {
           timeLimit: L.time + extra,
-          active: true, failed: false, level: i, t: 0, hp: 100, ammo: m.guns, msl: m.missiles, flr: m.flares,
+          active: true, failed: false, level: i, custom: null, t: 0, hp: 100, ammo: m.guns, msl: m.missiles, flr: m.flares, bombs: m.bombs || 0,
           score: 0, kills: 0, shots: 0, hits: 0, target: null, lockT: 0, rtb: null, radarDown: false, dmgFlash: 0, shake: 0, gunCd: 0
         });
         CB.pending = L.spawn.map(s => Object.assign({ delay: 0 }, s, { done: false }));
@@ -6432,6 +6643,7 @@
       }
       function abortCombat() { endCombat(); cleanup(); CB.failed = false; toast('Mission annulée', 'info'); }
       function succeed() {
+        if (CB.custom) { const L = CB.custom; endCombat(); cleanup(); CB.custom = null; CB.failed = false; if (L.onWin) L.onWin(); return; }
         const L = LEVELS[CB.level], acc = CB.shots ? CB.hits / CB.shots : 0;
         const timeB = Math.max(0, Math.round((CB.timeLimit - CB.t) * 3)), hpB = Math.round(CB.hp * 10), accB = Math.round(acc * 1000);
         const total = CB.score + timeB + hpB + accB;
@@ -6439,20 +6651,21 @@
         const prev = DB.combat.best[L.id], isBest = !prev || total > prev.score;
         if (isBest) DB.combat.best[L.id] = { score: total, stars: Math.max(stars, prev ? prev.stars : 0), time: CB.t, ac: AC.name };
         else if (stars > prev.stars) prev.stars = stars;
-        DB.combat.unlocked = Math.max(DB.combat.unlocked, Math.min(LEVELS.length, CB.level + 2));
+        const lvl = CB.level, next = nextInTrack(lvl), wasLocked = next != null && !isUnlocked(next);
+        if (next != null) { if (LEVELS[lvl].track === 'sol') DB.combat.unlockedSol = Math.max(DB.combat.unlockedSol, trackIdx(next) + 1); else DB.combat.unlocked = Math.max(DB.combat.unlocked, trackIdx(next) + 1); }
         persist();
-        const lvl = CB.level, next = lvl + 1 < LEVELS.length ? lvl + 1 : null;
         endCombat(); cleanup(); CB.failed = false;
         Snd.beep(660, .12); setTimeout(() => Snd.beep(990, .2), 150); setTimeout(() => Snd.beep(1320, .25), 320);
         showDialog('Mission accomplie',
           `<p class="dmsg">${esc(L.name)} <span class="stars">${starStr(stars)}</span>${isBest ? ' <span class="ok">· nouveau record</span>' : ''}</p>` +
           kv([['Victoires', `${CB.kills} · ${CB.score} pts`], ['Bonus temps', `${fmtTime(CB.t)} · +${timeB}`], ['Bonus blindage', `${Math.round(CB.hp)} % · +${hpB}`],
           ['Précision canon', `${Math.round(acc * 100)} % · +${accB}`], ['Score total', `<b>${total}</b>`]]) +
-          (next != null && lvl + 1 === DB.combat.unlocked - 1 ? `<p class="hint">🔓 Mission ${next + 1} débloquée : ${esc(LEVELS[next].name)}</p>` : ''),
+          (wasLocked ? `<p class="hint">🔓 Mission ${next + 1} débloquée : ${esc(LEVELS[next].name)}</p>` : ''),
           [['Campagne', openCampaign], ['Vol libre', null], next != null ? ['Mission suivante', () => startLevel(next), true] : ['Rejouer', () => startLevel(lvl), true]], 'good');
       }
       function fail(reason) {
         if (!CB.active) return;
+        if (CB.custom) { const L = CB.custom; endCombat(); CB.custom = null; CB.failed = false; if (L.onFail) setTimeout(() => L.onFail(reason), S.crashed ? 1100 : 300); return; }
         const lvl = CB.level, L = LEVELS[lvl];
         endCombat(); CB.failed = true;
         Snd.beep(220, 0.4, 0.06);
@@ -6461,7 +6674,7 @@
           [['Campagne', openCampaign], ['Réessayer (R)', () => startLevel(lvl), true]], 'bad'), S.crashed ? 1100 : 300);
       }
       function checkObjectives() {
-        const L = LEVELS[CB.level];
+        const L = curL();
         let all = true;
         for (const g of CB.goals) {
           const units = CB.enemies.filter(e => g.kinds.includes(e.kind));
@@ -6476,8 +6689,9 @@
           if (ap && (ap.id === L.base || ap.carrier)) CB.rtb.done = true;
         }
         if (all && (!L.rtb || (CB.rtb && CB.rtb.done))) return succeed();
-        if (CB.t > CB.timeLimit) return fail('Temps écoulé');
+        if (CB.timeLimit && CB.t > CB.timeLimit) return fail('Temps écoulé');
         if (L.fail === 'convoy' && CB.enemies.some(e => e.kind === 'truck' && e.alive && e.pos.z < -ROAD_LEN / 2 + 60)) return fail('Le convoi a quitté la zone');
+        if (L.fail === 'reach' && CB.enemies.some(e => e.alive && e.arrived)) return fail(L.failMsg || "L'ennemi a atteint son objectif");
         if (L.fail === 'bombers') {
           const b = apById(L.base);
           if (CB.enemies.some(e => e.kind === 'bomber' && e.alive && Math.hypot(e.pos.x - b.x, e.pos.z - b.z) < 400)) return fail(`La base ${b.name} a été bombardée`);
@@ -6502,36 +6716,40 @@
             Snd.beep(140, 0.03, 0.02);
           }
         } else CB.gunCd = 0;
+        // Bombe : Espace ou Entrée en vol (bouton A de la manette), une par appui
+        const bk = !!(keys[' '] || keys['enter']);
+        if (bk && !CB.bombKey && !S.onGround) dropBomb();
+        CB.bombKey = bk;
         updateEnemies(dt);
         if (!CB.active) return;
-        updateBullets(dt); updateMissiles(dt); updateFlares(dt); updateFx(dt);
+        updateBullets(dt); updateMissiles(dt); updateFlares(dt); updateBombs(dt); updateFx(dt);
         updateTargeting(dt);
         CB.incoming = CB.missiles.some(m => m.target === 'player');
         if (CB.incoming) { CB.warnBeep -= dt; if (CB.warnBeep <= 0) { Snd.beep(1100, 0.08, 0.05); CB.warnBeep = 0.25; } }
         // Réparation / réarmement sur un aérodrome
         CB.repairing = false;
         if (S.onGround && S.roll === 0 && airportAt(plane.position.x, plane.position.z)) {
-          const before = CB.hp + CB.ammo + CB.msl + CB.flr;
+          const before = CB.hp + CB.ammo + CB.msl + CB.flr + CB.bombs;
           CB.hp = Math.min(100, CB.hp + 10 * dt);
           CB.ammo = Math.min(mil.guns, CB.ammo + 150 * dt);
           CB.rearmT = (CB.rearmT || 0) + dt;
-          if (CB.rearmT > 2) { CB.rearmT = 0; if (CB.msl < mil.missiles) CB.msl++; CB.flr = Math.min(mil.flares, CB.flr + 6); }
-          CB.repairing = CB.hp + CB.ammo + CB.msl + CB.flr > before;
+          if (CB.rearmT > 2) { CB.rearmT = 0; if (CB.msl < mil.missiles) CB.msl++; if (CB.bombs < (mil.bombs || 0)) CB.bombs += 2; CB.bombs = Math.min(CB.bombs, mil.bombs || 0); CB.flr = Math.min(mil.flares, CB.flr + 6); }
+          CB.repairing = CB.hp + CB.ammo + CB.msl + CB.flr + CB.bombs > before;
         }
         if (CB.active && !S.crashed) checkObjectives();
       }
 
       // ════════════════════════ HUD de combat ════════════════════════
       function updatePanel() {
-        const L = LEVELS[CB.level];
-        setText('cbName', `M${CB.level + 1} · ${L.name.toUpperCase()}`);
+        const L = curL();
+        setText('cbName', CB.custom ? L.name.toUpperCase() : `M${CB.level + 1} · ${L.name.toUpperCase()}`);
         setText('cbTimer', fmtTime(Math.max(0, CB.timeLimit - CB.t)));
         const items = CB.goals.map(g => `<li class="${g.done ? 'done' : ''}">${g.done ? '✔' : '◻'} ${esc(g.label)} (${g.total - g.left}/${g.total})</li>`);
         if (L.rtb) items.push(`<li class="${CB.rtb && CB.rtb.done ? 'done' : ''}">${CB.rtb ? '➜' : '◻'} Se poser à ${L.base} ou sur le PA</li>`);
         const html = items.join(''); if ($('cbObj').innerHTML !== html) $('cbObj').innerHTML = html;
         setText('cbHpV', Math.round(CB.hp) + ' %');
         $('cbHp').style.width = CB.hp + '%'; $('cbHp').className = CB.hp < 30 ? 'red' : CB.hp < 60 ? 'amber' : 'green';
-        setText('cbGun', String(Math.floor(CB.ammo))); setText('cbMsl', String(CB.msl)); setText('cbFlr', String(CB.flr)); setText('cbScore', String(CB.score));
+        setText('cbGun', String(Math.floor(CB.ammo))); setText('cbMsl', String(CB.msl)); setText('cbFlr', String(CB.flr)); setText('cbBmb', String(CB.bombs)); setText('cbScore', String(CB.score));
         const t = CB.target;
         setText('cbTgt', t ? `${t.label} · ${fmtDist(CB.tDist)} · ${Math.max(0, Math.round(t.hp / t.maxHp * 100))} %` : '—');
         setText('cbLock', !t ? '—' : CB.lockT >= 1 ? 'VERROUILLÉ' : CB.lockT > 0 ? `acquisition ${Math.round(CB.lockT * 100)} %` : 'hors cône');
@@ -6577,6 +6795,21 @@
             }
           }
           g.font = "600 11px 'JetBrains Mono', monospace"; g.textAlign = 'center'; g.textBaseline = 'middle';
+          if (CB.bombs > 0 && !S.onGround) {   // CCIP : cercle d'impact, ligne de chute depuis le viseur ; rouge si une cible au sol est dans le souffle
+            const ci = ccip();
+            if (ci) {
+              const s = project(ci.p);
+              if (!s.behind && s.x > 0 && s.x < W && s.y > 0 && s.y < H) {
+                const onT = CB.enemies.some(e => e.alive && !e.air && center(e).distanceTo(ci.p) < BOMB_R * 0.6 + e.r * 0.5);
+                const col = onT ? '#ff3b3b' : '#ffb547';
+                g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.8;
+                if (!pp.behind) { g.setLineDash([3, 5]); g.beginPath(); g.moveTo(pp.x, pp.y + 30); g.lineTo(s.x, s.y - 16); g.stroke(); g.setLineDash([]); }
+                g.beginPath(); g.arc(s.x, s.y, 14, 0, Math.PI * 2); g.stroke();
+                g.beginPath(); g.arc(s.x, s.y, 2.5, 0, Math.PI * 2); g.fill();
+                g.fillText(onT ? 'LARGUEZ' : `CCIP ${ci.t.toFixed(1)} s`, s.x, s.y + 26);
+              }
+            }
+          }
           for (const e of CB.enemies) {
             if (!e.alive) continue;
             const c = _l.copy(center(e)), d = c.distanceTo(plane.position);
@@ -6646,8 +6879,9 @@
       // ════════════════════════ Menu de campagne ════════════════════════
       function renderCampaign() {
         $('cbLevels').innerHTML = LEVELS.map((L, i) => {
-          const locked = i + 1 > DB.combat.unlocked, b = DB.combat.best[L.id];
-          return `<div class="lvl ${locked ? 'locked' : ''}">
+          const locked = !isUnlocked(i), b = DB.combat.best[L.id];
+          const sec = i === 0 ? '<h3 class="lvlsec">Supériorité aérienne</h3>' : i && trackOf(LEVELS[i - 1]) !== trackOf(L) ? '<h3 class="lvlsec">Attaque au sol · bombes et canon</h3>' : '';
+          return sec + `<div class="lvl ${locked ? 'locked' : ''}">
       <div class="achead"><h4>${i + 1}. ${esc(L.name)}</h4><span class="stars">${b ? starStr(b.stars) : '☆☆☆'}</span></div>
       <span class="role">Difficulté ${'◆'.repeat(L.diff)}${'◇'.repeat(5 - L.diff)} · ${WIND_PRESETS[L.wx].label} · ${fmtTime(L.time)} · ${L.base} · carte Vallée</span>
       <p class="brief">${esc(L.brief)}</p>
@@ -6657,7 +6891,7 @@
     </div>`;
         }).join('');
         $('cbAc').innerHTML = Object.values(AIRCRAFT).filter(a => a.mil).map(a =>
-          `<button class="btn ${DB.combat.ac === a.id ? 'on' : ''}" data-cbac="${a.id}"><span>${a.name}</span><span class="hint">${a.mil.missiles} mis. · blind. ×${a.mil.armor} · ${kmh(Math.sqrt(a.baseThrust * a.ab / a.drag))} km/h</span></button>`).join('');
+          `<button class="btn ${DB.combat.ac === a.id ? 'on' : ''}" data-cbac="${a.id}"><span>${a.name}</span><span class="hint">${a.mil.missiles} mis. · ${a.mil.bombs || 0} bombes · blind. ×${a.mil.armor} · ${kmh(Math.sqrt(a.baseThrust * a.ab / a.drag))} km/h</span></button>`).join('');
         $('cbStart').innerHTML = [['base', 'Base de la mission'], ['carrier', '⚓ Porte-avions']].map(([k, l]) => `<button data-cbstart="${k}" class="${DB.combat.start === k ? 'on' : ''}">${l}</button>`).join('');
         $('cbAbortBox').innerHTML = CB.active ? `<button class="btn danger" id="cbAbort">Abandonner la mission en cours</button>` : '';
       }
@@ -6676,13 +6910,14 @@
       const tb = document.createElement('button');
       tb.className = 'tbtn'; tb.title = 'Campagne de combat';
       tb.innerHTML = `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg><span>Combat</span><kbd>J</kbd>`;
-      tb.addEventListener('click', () => { Snd.init(); tb.blur(); openCampaign(); });
+      tb.addEventListener('click', () => { Snd.init(); tb.blur(); if (window.SKYWAY_MISSIONS) SKYWAY_MISSIONS.open(); else openCampaign(); });
       const tools = document.querySelector('.tools'); tools.insertBefore(tb, tools.children[1]);
       document.querySelector('.chips').insertAdjacentHTML('beforeend', '<span class="chip" id="cAb" style="display:none">PC</span>');
       document.querySelector('#help table').insertAdjacentHTML('beforeend',
         `<tr><td><kbd>J</kbd> · <kbd>Maj</kbd></td><td>Combat · Postcomb.</td></tr>
    <tr><td><kbd>F</kbd> · <kbd>V</kbd> · <kbd>B</kbd></td><td>Canon · Missile · Leurres</td></tr>
-   <tr><td><kbd>Tab</kbd></td><td>Cible suivante</td></tr>`);
+   <tr><td><kbd>Tab</kbd></td><td>Cible suivante</td></tr>
+   <tr><td><kbd>Espace</kbd> en vol</td><td>Bombe</td></tr>`);
 
       // Clavier de combat
       addEventListener('keydown', e => {
@@ -6695,11 +6930,13 @@
         }
         if (e.repeat) return;
         const k = (e.key || '').toLowerCase();
-        if (k === 'j') { if ($('cbModal').classList.contains('open')) closeAllModals(); else openCampaign(); return; }
+        if (k === 'j') { if (window.SKYWAY_MISSIONS) SKYWAY_MISSIONS.toggle(); else if ($('cbModal').classList.contains('open')) closeAllModals(); else openCampaign(); return; }
         if (!CB.active || anyModal() || S.paused) return;
         if (k === 'v') firePlayerMissile();
         else if (k === 'b') dropFlares();
       });
+
+      window.SKYWAY_COMBAT = { state: CB, startCustom, abort: () => { if (CB.active) { endCombat(); cleanup(); CB.custom = null; CB.failed = false; } }, openCampaign, button: tb, _test: { dropBomb, updateBombs, ccip, updateEnemies, isUnlocked, LEVELS } };
 
       // Restaure un jet sélectionné lors d'une session précédente
       const savedAc = raw.settings && raw.settings.ac;
@@ -7133,6 +7370,704 @@
       setAircraft = function (id) { _setAircraft(id); announce(); };
       const _loadMap = loadMap;
       loadMap = function (id) { const r = _loadMap(id); announce(); return r; };
+    })();
+  </script>
+  <!-- ═══════════ EXTENSION ÉCOLE & TRANSPORT · leçons guidées, contrats de fret et de passagers, centre des missions (J) ═══════════ -->
+  <style>
+    .mstabs {
+      display: flex;
+      gap: 6px;
+      margin: 0 0 12px
+    }
+
+    .mstabs button {
+      flex: 1;
+      background: rgba(255, 255, 255, .03);
+      border: 1px solid var(--line);
+      color: var(--mute);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: 700 14px var(--ui);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      cursor: pointer
+    }
+
+    .mstabs button.on {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: rgba(90, 209, 255, .08)
+    }
+
+    #msBody {
+      max-height: calc(100vh - 210px);
+      overflow: auto
+    }
+
+    .msgrid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 10px
+    }
+
+    .msgrid h3 {
+      grid-column: 1 / -1;
+      margin: 6px 0 0
+    }
+
+    .mscard {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, .02);
+      display: flex;
+      flex-direction: column;
+      gap: 4px
+    }
+
+    .mscard.done {
+      border-color: rgba(91, 240, 138, .35)
+    }
+
+    .mscard.cur {
+      border-color: var(--amber)
+    }
+
+    .mscard h4 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px
+    }
+
+    .mscard p {
+      font-size: 13px;
+      margin: 2px 0 4px;
+      line-height: 1.35
+    }
+
+    .mscard .srow {
+      font-size: 13px
+    }
+
+    .mscard .tags {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap
+    }
+
+    .mscard .tag {
+      font: 600 10px var(--mono);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--line2);
+      color: var(--cyan)
+    }
+
+    .mscard .tag.warn {
+      color: var(--amber);
+      border-color: rgba(255, 181, 71, .5)
+    }
+
+    .mscard .tag.red {
+      color: var(--red);
+      border-color: rgba(255, 77, 77, .5)
+    }
+
+    .mscard .btn {
+      margin-top: 6px
+    }
+
+    .msstats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 10px
+    }
+
+    .msbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 10px;
+      flex-wrap: wrap
+    }
+
+    #tutPanel {
+      top: 64px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(520px, calc(100vw - 32px));
+      padding: 10px 14px;
+      display: none;
+      z-index: 6;
+      border-color: rgba(255, 181, 71, .45)
+    }
+
+    #tutPanel .tstep {
+      font-size: 16px;
+      line-height: 1.35;
+      margin: 6px 0
+    }
+
+    #tutPanel .thint {
+      font-size: 13px;
+      color: var(--amber);
+      min-height: 0
+    }
+
+    #tutPanel .tbar {
+      height: 4px;
+      background: rgba(255, 255, 255, .08);
+      border-radius: 2px;
+      overflow: hidden;
+      margin: 6px 0
+    }
+
+    #tutPanel .tbar i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--amber)
+    }
+
+    #tutPanel .tbtns {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end
+    }
+
+    #tutPanel .tbtns .btn {
+      padding: 4px 10px;
+      font-size: 12px
+    }
+
+    body.tut #cbBanner {
+      top: 200px
+    }
+
+    #ctPanel {
+      bottom: 12px;
+      left: 12px;
+      width: 300px;
+      padding: 10px 12px;
+      display: none
+    }
+
+    #ctPanel .bar {
+      margin: 4px 0 6px
+    }
+
+    #ctPanel .val.warn {
+      color: var(--amber)
+    }
+
+    @media (max-width:900px) {
+      .msstats {
+        grid-template-columns: repeat(2, 1fr)
+      }
+    }
+  </style>
+
+  <div id="msModal" class="modal">
+    <div class="card wide">
+      <div class="chead">
+        <h2>Missions</h2><button class="x" data-msclose>✕</button>
+      </div>
+      <div class="mstabs" id="msTabs"></div>
+      <div id="msBody"></div>
+    </div>
+  </div>
+  <div id="tutPanel" class="glass">
+    <div class="phead"><span class="lbl" id="tutName">ÉCOLE</span><b class="val" id="tutStepN">1/1</b></div>
+    <div class="tstep" id="tutText"></div>
+    <div class="tbar"><i id="tutBar"></i></div>
+    <div class="thint" id="tutHint"></div>
+    <div class="tbtns"><button class="btn" id="tutSkip">Passer l'étape</button><button class="btn" id="tutRestart">Recommencer (R)</button><button class="btn danger" id="tutQuit">Quitter</button></div>
+  </div>
+  <div id="ctPanel" class="glass">
+    <div class="phead"><span class="lbl" id="ctName">CONTRAT</span><b class="val" id="ctTimer">00:00</b></div>
+    <div class="srow"><span>Chargement</span><b class="val" id="ctLoad">—</b></div>
+    <div class="srow"><span>Destination</span><b class="val" id="ctDest">—</b></div>
+    <div class="srow"><span>Masse · rotation</span><b class="val" id="ctMass">—</b></div>
+    <div id="ctComfortBox">
+      <div class="srow barrow">
+        <div class="top"><span>Confort passagers</span><b class="val" id="ctComfortV">100 %</b></div>
+        <div class="bar"><i id="ctComfort" class="green"></i></div>
+      </div>
+    </div>
+    <div class="srow"><span>Rémunération prévue</span><b class="val" id="ctPay">—</b></div>
+    <button class="btn danger" id="ctAbort" style="margin-top:6px;width:100%">Abandonner le contrat</button>
+  </div>
+
+  <script>
+    'use strict';
+    (() => {
+      const raw = Store.load() || {};
+      DB.school = Object.assign({ done: {} }, raw.school);
+      DB.career = Object.assign({ money: 0, contracts: 0, pax: 0, kg: 0, failed: 0 }, raw.career);
+      const COMBAT = window.SKYWAY_COMBAT || null;
+      const eur = n => Math.round(n).toLocaleString('fr-FR') + ' €';
+      const kgStr = n => Math.round(n).toLocaleString('fr-FR') + ' kg';
+      const hdgErr = h => Math.abs(wrap180(S.hdg - h));
+      const ILS_OK = (k = 0.5) => ILS.on && Math.abs(ILS.loc) < LOC_FS * k && Math.abs(ILS.gs) < GS_FS * k;
+      let helpWas = null;
+      function showPanel(id, on) {
+        $(id).style.display = on ? 'block' : 'none';
+        const busy = $('tutPanel').style.display === 'block' || $('ctPanel').style.display === 'block';
+        if (busy && helpWas === null) { helpWas = $('help').style.display; $('help').style.display = 'none'; }
+        else if (!busy && helpWas !== null) { $('help').style.display = helpWas; helpWas = null; }
+      }
+
+      // ════════════════════════ Charge utile : masse → poussée, décrochage et rotation ════════════════════════
+      // m = 1 + 0,35 × fraction de la charge maximale : poussée / m, Vs et Vr × √m (le reste du modèle de vol est inchangé)
+      const massNow = () => (CT.active ? CT.mass : 1) * (TUT.on ? TUT.mass : 1);
+      const _updatePlane = updatePlane;
+      updatePlane = function (dt) {
+        const m = massNow();
+        if (m > 1.001 && !AC.jet) {
+          const t = AC.thrust, st = AC.stall, vr = AC.vr, k = Math.sqrt(m);
+          AC.thrust = t / m; AC.stall = st * k; AC.vr = vr * k;
+          try { _updatePlane(dt); } finally { AC.thrust = t; AC.stall = st; AC.vr = vr; }
+        } else _updatePlane(dt);
+        if (CT.active) contractTick(dt);
+        if (TUT.on) tutTick(dt);
+      };
+
+      // ════════════════════════ Contrats de transport ════════════════════════
+      const CARGO = [['pièces mécaniques'], ['courrier postal'], ['produits frais'], ['matériaux de chantier'], ['pièces détachées'], ['matériel médical', 1], ['vaccins', 1], ['verrerie', 1], ['instruments de musique', 1]];
+      const CT = { active: false, o: null, mass: 1, comfort: 100, t: 0, warn: 0, uiT: 0 };
+      let OFFERS = [], offersMap = null, seq = 0;
+      const capOf = a => a.cap || { pax: 0, kg: 0 };
+      const canCarry = (a, o) => !a.mil && (o.type === 'pax' ? capOf(a).pax >= o.n : capOf(a).kg >= o.n);
+      const carriers = o => Object.values(AIRCRAFT).filter(a => canCarry(a, o)).sort((a, b) => (o.type === 'pax' ? capOf(a).pax - capOf(b).pax : capOf(a).kg - capOf(b).kg));
+      const loadStr = o => o.type === 'pax' ? `${o.n} passager${o.n > 1 ? 's' : ''}` : `${kgStr(o.n)} de ${o.what}`;
+      function makeOffer(from) {
+        const aps = AIRPORTS.filter(a => !a.carrier);
+        if (aps.length < 2) return null;
+        const A = from ? apById(from) : aps[Math.floor(Math.random() * aps.length)];
+        let B; do { B = aps[Math.floor(Math.random() * aps.length)]; } while (B === A);
+        if (CARRIERS.length && Math.random() < 0.12) B = CARRIERS[0];             // livraison urgente au porte-avions
+        const pax = !B.carrier && Math.random() < 0.5, size = Math.random();
+        const o = { id: ++seq, type: pax ? 'pax' : 'fret', from: A.id, to: B.id, urgent: Math.random() < 0.25, fragile: false };
+        if (pax) o.n = size < 0.4 ? 1 + Math.floor(Math.random() * 3) : size < 0.7 ? 4 + Math.floor(Math.random() * 5) : 25 + Math.floor(Math.random() * 46);
+        else {
+          const c = CARGO[Math.floor(Math.random() * CARGO.length)]; o.what = c[0]; o.fragile = !!c[1];
+          o.n = Math.round((size < 0.4 ? 60 + Math.random() * 260 : size < 0.75 ? 900 + Math.random() * 1500 : 2600 + Math.random() * 1800) / 10) * 10;
+          if (B.carrier) o.n = Math.min(o.n, 320);
+        }
+        const list = carriers(o); if (!list.length) return null;
+        o.dist = Math.hypot(B.x - A.x, B.z - A.z);
+        const v = Math.min(...list.map(a => vmaxOf(a))) * 0.75;                  // délai calé sur l'avion capable le plus lent
+        o.time = Math.round((o.dist / v * 1.45 + 240) * (o.urgent ? 0.8 : 1) / 10) * 10;
+        o.pay = Math.round((180 + o.dist / 1000 * (pax ? 30 + o.n * 4 : 35 + o.n / 45)) * (o.urgent ? 1.4 : 1) * (o.fragile ? 1.2 : 1) / 10) * 10;
+        return o;
+      }
+      function refreshOffers(force) {
+        if (!force && offersMap === MAP.id && OFFERS.length) return;
+        offersMap = MAP.id; OFFERS = [];
+        const here = airportAt(plane.position.x, plane.position.z);
+        for (let k = 0; k < 40 && OFFERS.length < 8; k++) { const o = makeOffer(k < 3 && here && !here.carrier ? here.id : null); if (o) OFFERS.push(o); }
+      }
+      function acceptOffer(id) {
+        const o = OFFERS.find(x => x.id === id); if (!o) return;
+        if (!S.onGround && !S.crashed) { toast('Posez-vous avant de prendre un contrat', 'caution'); return; }
+        stopLesson(true); if (COMBAT) COMBAT.abort();
+        if (!canCarry(AC, o)) { S.crashed = true; setAircraft(carriers(o)[0].id); }
+        const c = capOf(AC), frac = o.type === 'pax' ? o.n / c.pax * 0.8 : o.n / c.kg;
+        Object.assign(CT, { active: true, o, mass: 1 + 0.35 * frac, comfort: 100, t: 0, warn: 0, uiT: 0 });
+        Object.assign(mission, { active: true, from: o.from, to: o.to, wps: [], idx: 0, started: false, elapsed: 0, dist: 0, total: o.dist });
+        placeAtAirport(o.from); S.home = o.from;
+        closeAllModals(); showPanel('ctPanel', true);
+        $('ctComfortBox').style.display = o.type === 'pax' ? '' : 'none';
+        const B = apById(o.to);
+        showDialog(o.type === 'pax' ? 'Embarquement terminé' : 'Chargement terminé',
+          `<p class="dmsg">${esc(loadStr(o))} à destination de ${esc(B.id)} · ${esc(B.name)} (${fmtDist(o.dist)}).</p>` +
+          kv([['Avion', `${AC.name} · masse +${Math.round((CT.mass - 1) * 100)} %`], ['Délai', fmtTime(o.time)], ['Rémunération', eur(o.pay)]]) +
+          `<p class="hint">${o.type === 'pax' ? '🧳 Le confort compte : virages doux (< 30°), pas de facteur de charge brutal, descente modérée, atterrissage souple.' : o.fragile ? '📦 Chargement fragile : un atterrissage dur coûte cher.' : '📦 Plus l\'avion est lourd, plus il lui faut de piste et de vitesse : volets décollage (Y) conseillés.'}${B.carrier ? ' ⚓ Destination : le porte-avions, posez-vous sur le pont (freins).' : ''} La navigation (barre du bas, ILS) mène à ${esc(B.id)}.</p>`,
+          [['Annuler', () => cancelContract('Contrat annulé')], ['Décoller', null, true]], 'good');
+      }
+      function cancelContract(msg, silent) {
+        if (!CT.active) return;
+        CT.active = false; mission.active = false; showPanel('ctPanel', false);
+        if (msg && !silent) toast(msg, 'info');
+      }
+      function contractTick(dt) {
+        if (!mission.active || mission.to !== CT.o.to) { cancelContract(); return; }   // vol remplacé (campagne, autre voyage)
+        if (S.paused) return;
+        CT.t += dt;
+        if (CT.o.type === 'pax' && !S.onGround && !S.crashed) {
+          let d = 0;
+          const dg = Math.abs(S.g - 1); if (dg > 0.45) d += (dg - 0.45) * 14;
+          if (Math.abs(S.bank) > 30) d += (Math.abs(S.bank) - 30) * 0.25;
+          if (S.pitch > 18 || S.pitch < -10) d += 3;
+          if (S.vs < -9) d += 2;
+          if (S.stallWarn) d += 10;
+          if (S.turbLevel > 0.6) d += 0.8;
+          CT.comfort = Math.max(0, CT.comfort - d * dt);
+          if (CT.comfort < 80 - CT.warn * 20 && CT.warn < 3) { CT.warn++; toast(['Passagers mal à l\'aise : adoucissez le pilotage', 'Plaintes en cabine !', 'Passagers terrifiés'][CT.warn - 1], 'caution'); }
+        }
+        CT.uiT -= dt;
+        if (CT.uiT <= 0) { CT.uiT = 0.2; updateCtPanel(); }
+      }
+      function payFor(gr) {
+        const o = CT.o, late = Math.max(0, CT.t - o.time);
+        let k = late ? Math.max(0.3, 1 - late / o.time) : CT.t < o.time * 0.75 ? 1.15 : 1;
+        if (o.type === 'pax') k *= 0.4 + 0.6 * CT.comfort / 100;
+        k *= { Parfait: 1.1, Bon: 1, Ferme: o.fragile ? 0.8 : 0.95, Dur: o.fragile ? 0.5 : 0.8 }[gr.label] ?? 1;
+        return { pay: Math.round(o.pay * k / 10) * 10, late };
+      }
+      function updateCtPanel() {
+        const o = CT.o, B = apById(o.to), left = o.time - CT.t;
+        setText('ctName', `${o.type === 'pax' ? '🧳 PASSAGERS' : '📦 FRET'} · ${o.from} → ${o.to}`);
+        setText('ctTimer', left >= 0 ? fmtTime(left) : '+' + fmtTime(-left));
+        $('ctTimer').className = 'val ' + (left < 0 ? 'bad' : left < 60 ? 'warn' : '');
+        setText('ctLoad', loadStr(o) + (o.fragile ? ' · fragile' : '') + (o.urgent ? ' · urgent' : ''));
+        setText('ctDest', `${B.name} · ${fmtDist(NAV.target && NAV.target.ap === B ? NAV.dist : o.dist)}`);
+        setText('ctMass', `+${Math.round((CT.mass - 1) * 100)} % · Vr ${kmh(AC.vr * Math.sqrt(massNow()))} km/h`);
+        setText('ctComfortV', Math.round(CT.comfort) + ' %');
+        $('ctComfort').style.width = CT.comfort + '%'; $('ctComfort').className = CT.comfort < 50 ? 'red' : CT.comfort < 80 ? 'amber' : 'green';
+        setText('ctPay', eur(payFor({ label: 'Bon' }).pay));
+      }
+      function completeContract(ap) {
+        const o = CT.o, f = S.flight, vs = S.lastTouch ?? 0, lat = S.lastLat || 0, gr = gradeLanding(vs, lat);
+        if (o.type === 'pax') CT.comfort = Math.max(0, CT.comfort - { Parfait: 0, Bon: 4, Ferme: 15, Dur: 30 }[gr.label]);
+        const { pay, late } = payFor(gr);
+        const stars = 1 + (late ? 0 : 1) + ((o.type === 'pax' ? CT.comfort >= 80 : gr.stars >= 2) ? 1 : 0);
+        S.airborne = false;
+        if (f) {
+          updateBests(f, vs);
+          logFlight({ type: 'Transport', route: `${o.from} → ${o.to}`, wps: 0, time: CT.t, dist: mission.dist, maxAlt: f.maxAlt, maxSpeed: f.maxSpeed, landing: vs, grade: gr.label, status: 'Réussi' });
+        }
+        Object.assign(DB.career, { money: DB.career.money + pay, contracts: DB.career.contracts + 1, pax: DB.career.pax + (o.type === 'pax' ? o.n : 0), kg: DB.career.kg + (o.type === 'fret' ? o.n : 0) });
+        persist();
+        CT.active = false; mission.active = false; S.flight = null; S.home = ap.id; showPanel('ctPanel', false);
+        OFFERS = OFFERS.filter(x => x !== o);
+        for (let k = 0; k < 10; k++) { const n = makeOffer(ap.carrier ? null : ap.id); if (n) { OFFERS.unshift(n); break; } }
+        Snd.beep(660, .12); setTimeout(() => Snd.beep(990, .18), 140);
+        showDialog('Livraison réussie',
+          `<p class="dmsg">${esc(loadStr(o))} livré${o.type === 'pax' && o.n > 1 ? 's' : ''} à ${esc(ap.name)} <span class="stars">${starStr(stars)}</span></p>` +
+          kv([['Durée', `${fmtTime(CT.t)} / ${fmtTime(o.time)}${late ? ` <span class="bad">· retard ${fmtTime(late)}</span>` : ' <span class="ok">· dans les temps</span>'}`],
+          ['Atterrissage', `${vs.toFixed(1)} m/s · ${gr.label} <span class="stars">${starStr(gr.stars)}</span>`],
+          ...(o.type === 'pax' ? [['Confort passagers', Math.round(CT.comfort) + ' %']] : []),
+          ['Rémunération', `<b>${eur(pay)}</b> (offre ${eur(o.pay)})`], ['Solde', eur(DB.career.money)]]),
+          [['Vol libre', null], ['Contrat suivant', () => openHub('transport'), true]], 'good');
+      }
+      const _finishLanding = finishLanding;
+      finishLanding = function (ap) {
+        if (CT.active && ap && ap.id === CT.o.to && mission.started) { completeContract(ap); return; }
+        _finishLanding(ap);
+      };
+      const _crash = crash;
+      crash = function (msg) {
+        const was = S.crashed; _crash(msg);
+        if (!was && CT.active) { DB.career.failed++; persist(); cancelContract(); mission.active = false; toast('Contrat perdu', 'warn'); }
+        if (!was && TUT.on) { const id = TUT.id; setTimeout(() => lessonFail(id, msg), 1150); }
+      };
+      $('ctAbort').addEventListener('click', () => { cancelContract('Contrat abandonné'); S.home = S.home || 'VAL'; });
+
+      // ════════════════════════ École de pilotage : leçons guidées ════════════════════════
+      // Étape : { t: consigne (HTML), ok: () => booléen, hold: secondes à tenir (sum: cumulées), hint: conseil affiché après 20 s }
+      const CATS = { civil: 'Aviation légère', cargo: 'Cargo', ligne: 'Avion de ligne', chasse: 'Chasse' };
+      const VAL_RWY = () => runwayHdg(apById('VAL'));
+      const LESSONS = [
+        {
+          id: 'vol1', cat: 'civil', ac: 'alouette', diff: 1, name: 'Premier vol', wx: 'calme',
+          desc: "Décollage, montée, palier, virages : les gestes de base sur l'Alouette, l'avion le plus stable.",
+          steps: [
+            { t: 'Mettez plein gaz : maintenez <kbd>Z</kbd> (<kbd>W</kbd> en QWERTY) jusqu\'à 100 %.', ok: () => S.throttle > 0.97 },
+            { t: () => `L'avion accélère. Vers ${kmh(AC.vr)} km/h, tirez sur le manche : <kbd>↓</kbd> ou <kbd>5</kbd> (pavé numérique).`, ok: () => !S.onGround && S.agl > 4, hint: 'Tirez seulement quand la vitesse air (à gauche) dépasse la vitesse de rotation.' },
+            { t: 'Montez à 250 m au-dessus du sol (HAUTEUR SOL). Gardez le nez à ~10° au-dessus de l\'horizon.', ok: () => S.agl > 250, hint: 'Relâchez le manche : l\'avion se stabilise tout seul sur sa pente.' },
+            { t: 'Réduisez à ~65 % (<kbd>S</kbd>) et stabilisez en palier : variomètre entre −1 et +1 m/s pendant 4 s.', ok: () => S.throttle < 0.8 && Math.abs(S.vs) < 1, hold: 4, hint: 'Petites touches de ↑ / ↓ : le variomètre est sous l\'altitude.' },
+            { t: 'Virage à droite : inclinez d\'environ 25° (<kbd>→</kbd> / <kbd>6</kbd>) jusqu\'au cap 090°, puis remettez les ailes à plat.', ok: () => hdgErr(90) < 10 && Math.abs(S.bank) < 12, hold: 2, hint: 'Le cap est sous l\'horizon artificiel. Anticipez la sortie de virage de 10°.' },
+            { t: 'Virage à gauche (<kbd>←</kbd> / <kbd>4</kbd>) jusqu\'au cap 000°, ailes à plat.', ok: () => hdgErr(0) < 10 && Math.abs(S.bank) < 12, hold: 2 },
+            { t: 'Palonnier : maintenez <kbd>A</kbd>/<kbd>Q</kbd> ou <kbd>E</kbd>/<kbd>D</kbd> pour faire pivoter le nez.', ok: () => Math.abs(S.ctl.y) > 0.6 },
+            { t: 'Descente : réduisez les gaz sous 35 % et descendez sous 150 m sol.', ok: () => S.throttle < 0.36 && S.agl < 150, hint: 'Gaz réduits = le nez baisse tout seul ; la vitesse reste stable.' },
+          ]
+        },
+        {
+          id: 'vol2', cat: 'civil', ac: 'alouette', diff: 2, name: 'Approche et atterrissage', wx: 'calme',
+          air: { ap: 'VAL', lz: -2900, h: 150, speed: 34, thr: 0.35, flaps: 0.5 },
+          desc: 'En finale à 3 km de Vallée : PAPI, ILS, volets, arrondi, freinage.',
+          steps: [
+            { t: 'Vous êtes en finale de Vallée. À gauche de la piste, les 4 feux <b>PAPI</b> : 2 rouges + 2 blancs = bonne pente, tout blanc = trop haut, tout rouge = trop bas.', ok: () => true, hold: 6 },
+            { t: 'Sortez les volets pleins : <kbd>Y</kbd> (ou <kbd>Pg↓</kbd>).', ok: () => S.flapTarget >= 1 },
+            { t: 'Suivez le plan : sur l\'horizon artificiel, gardez les losanges magenta près du centre (axe en bas, pente à droite). Cumulez 12 s à moins d\'un demi-point.', ok: () => ILS_OK(0.5), hold: 12, sum: true, hint: 'Losange de pente en haut = vous êtes trop bas : un peu de gaz. En bas = trop haut : réduisez.' },
+            { t: 'Près du sol, réduisez les gaz (<kbd>S</kbd>) et arrondissez : tirez légèrement pour toucher à moins de 2,5 m/s.', ok: () => S.onGround && S.lastTouch != null, hint: 'Visez le bout de piste, réduisez vers 15 m sol, et cabrez juste avant le contact.' },
+            { t: 'Freinez avec <kbd>Espace</kbd> (maintenu) jusqu\'à l\'arrêt complet.', ok: () => S.onGround && S.roll === 0 && !!airportAt(plane.position.x, plane.position.z) },
+          ]
+        },
+        {
+          id: 'cargo1', cat: 'cargo', ac: 'atlas', diff: 2, name: 'Cargo lourd', wx: 'brise', mass: 1.3,
+          desc: "L'Atlas chargé à 4 t : volets de décollage, train, tour de piste, ILS et inverseurs de poussée.",
+          steps: [
+            { t: 'L\'Atlas est chargé : il accélère et décolle plus lentement. Sortez les volets en position décollage : <kbd>Y</kbd> une fois (« VOLETS 1 »).', ok: () => Math.abs(S.flapTarget - 0.5) < 0.01 },
+            { t: () => `Plein gaz (<kbd>Z</kbd>), rotation vers ${kmh(AC.vr * Math.sqrt(massNow()))} km/h (<kbd>↓</kbd>).`, ok: () => !S.onGround && S.agl > 5 },
+            { t: 'Au-dessus de 40 m, rentrez le train : <kbd>G</kbd>.', ok: () => S.gearTarget === 0 && S.agl > 30 },
+            { t: 'Au-dessus de 150 m, rentrez les volets : <kbd>Y</kbd> jusqu\'à « VOLETS 0 » (ou <kbd>Pg↑</kbd>).', ok: () => S.flapTarget === 0 && S.agl > 120 },
+            { t: 'Montez vers 450 m puis faites demi-tour : virage jusqu\'au cap 180°.', ok: () => hdgErr(180) < 15 && S.agl > 300, hint: 'Virage à 25–30° d\'inclinaison : l\'Atlas est lent à rouler.' },
+            { t: 'Tour de piste : survolez Vallée et continuez vers le sud jusqu\'à 3,5 km au-delà de la piste (DISTANCE dans la barre du bas).', ok: () => toLocal(apById('VAL'), plane.position.x, plane.position.z).lz < -3500, hint: 'Le relief monte au-delà de 5 km au sud : ne vous éloignez pas trop.' },
+            { t: 'Demi-tour vers le cap 000° et interceptez l\'ILS 36 (losanges magenta). Train sorti (<kbd>G</kbd>) et volets pleins (<kbd>Y</kbd>) avant 3 km.', ok: () => S.gearTarget === 1 && S.flapTarget === 1 && ILS.on && ILS.e === -1 && ILS.d < 3000, hint: 'Descendez vers 160 m à 3 km de la piste : c\'est la hauteur du plan de 3°.' },
+            { t: 'Posez-vous puis inversez la poussée : <kbd>X</kbd> et des gaz pour freiner.', ok: () => S.onGround && S.reverse },
+            { t: 'Coupez les gaz (<kbd>S</kbd>) et arrêtez-vous (<kbd>Espace</kbd>).', ok: () => S.onGround && S.roll === 0 && !!airportAt(plane.position.x, plane.position.z) },
+          ]
+        },
+        {
+          id: 'ligne1', cat: 'ligne', ac: 'mistral', diff: 3, name: 'Approche ILS en liner', wx: 'brise',
+          air: { ap: 'VAL', lz: -4750, h: 240, speed: 76, thr: 0.35 },   // au-delà de 4,7 km, le relief au sud coupe le plan de 3°
+          desc: 'Le Mistral et ses 70 passagers : interception de l\'ILS, configuration progressive, atterrissage en douceur.',
+          steps: [
+            { t: 'Le Mistral est lourd et lent à réagir : anticipez. Interceptez l\'axe : losange du bas à moins d\'un point pendant 3 s.', ok: () => ILS.on && Math.abs(ILS.loc) < LOC_FS, hold: 3 },
+            { t: () => `Ralentissez sous ${kmh(AC.vfe)} km/h (gaz réduits) et sortez les volets décollage (<kbd>Y</kbd>).`, ok: () => S.flapTarget >= 0.5 && S.speed < AC.vfe },
+            { t: 'Vers 5 km : train sorti (<kbd>G</kbd>) et volets pleins (<kbd>Y</kbd>).', ok: () => S.gearTarget === 1 && S.flapTarget === 1 },
+            { t: 'Tenez l\'axe et le plan (moins d\'un demi-point) : 12 s cumulées.', ok: () => ILS_OK(0.5), hold: 12, sum: true, hint: 'Corrections minimes : le liner met plusieurs secondes à répondre.' },
+            { t: 'Posez-vous en douceur, inverseurs <kbd>X</kbd>, freins <kbd>Espace</kbd>, jusqu\'à l\'arrêt.', ok: () => S.onGround && S.roll === 0 && !!airportAt(plane.position.x, plane.position.z) },
+          ]
+        },
+        {
+          id: 'chasse1', cat: 'chasse', ac: 'epervier', diff: 2, name: 'Postcombustion et voltige', wx: 'calme',
+          desc: 'Décollage sur postcombustion, montée rapide, virage à fort facteur de charge et tonneau.',
+          steps: [
+            { t: 'Plein gaz (<kbd>Z</kbd>), puis maintenez <kbd>Maj</kbd> : postcombustion (flamme, puce « POSTCOMB. »).', ok: () => S.ab },
+            { t: 'Décollez (<kbd>↓</kbd>) et rentrez le train (<kbd>G</kbd>).', ok: () => !S.onGround && S.gearTarget === 0 },
+            { t: 'Montez au-dessus de 1 000 m.', ok: () => S.alt > 1000 },
+            { t: 'Virage serré : inclinez à ~70° et tirez fort pour tenir plus de 4 g (FACTEUR G) : 3 s cumulées.', ok: () => S.g > 4, hold: 3, sum: true, hint: 'Inclinez d\'abord (← / →), puis tirez (↓). Le limiteur évite le décrochage.' },
+            { t: 'Tonneau : un tour complet en roulis, <kbd>←</kbd> ou <kbd>→</kbd> maintenu.', ok: () => Math.abs(TUT.st.roll || 0) > 340 },
+          ]
+        },
+        {
+          id: 'chasse2', cat: 'chasse', ac: 'titan', diff: 3, name: 'Armement air-air et air-sol', wx: 'calme',
+          air: { ap: 'VAL', lz: 600, h: 650, speed: 120, thr: 0.7 },
+          combat: {
+            name: 'École de tir', time: 0,
+            spawn: [{ kind: 'drone', n: 2, at: [0, 2600], spread: 300, alt: 640 }, { kind: 'depot', n: 1, at: [-300, 3800] }],
+            goals: [{ kinds: ['drone'], label: 'Abattre les drones' }, { kinds: ['depot'], label: 'Bombarder le dépôt' }]
+          },
+          desc: 'Le Titan : sélection de cible, verrouillage, missile, canon, leurres, puis bombe guidée par le cercle d\'impact.',
+          steps: [
+            { t: 'Deux drones tournent devant vous. <kbd>Tab</kbd> change de cible (crochets rouges).', ok: () => TUT.st.tab },
+            { t: 'Gardez la cible dans le cône devant le nez jusqu\'au losange rouge <b>LOCK</b>.', ok: () => COMBAT && COMBAT.state.lockT >= 1, hint: 'Le verrouillage demande moins de 3,2 km et ±19° autour du nez.' },
+            { t: 'Tirez le missile : <kbd>V</kbd>.', ok: () => COMBAT && COMBAT.state.msl < (AC.mil.missiles || 0) },
+            { t: 'Finissez les drones au canon : maintenez <kbd>F</kbd>, visez le petit cercle magenta (point d\'avance).', ok: () => COMBAT && !COMBAT.state.enemies.some(e => e.alive && e.kind === 'drone'), hint: 'Approchez à moins de 800 m, dans l\'axe de la cible.' },
+            { t: 'Lâchez des leurres contre les missiles : <kbd>B</kbd>.', ok: () => COMBAT && COMBAT.state.flr < AC.mil.flares },
+            { t: 'Bombardez le dépôt au nord : amenez le cercle d\'impact orange (<b>CCIP</b>) sur la cible ; quand il devient rouge « LARGUEZ », appuyez sur <kbd>Espace</kbd>.', ok: () => COMBAT && !COMBAT.state.enemies.some(e => e.alive && e.kind === 'depot'), hint: 'Léger piqué au-dessus de 200 m : le cercle descend vers la cible, larguez quand elle est dedans.' },
+          ]
+        },
+        {
+          id: 'chasse3', cat: 'chasse', ac: 'harfang', diff: 4, name: 'Appontage', wx: 'calme',
+          air: { ap: 'PA1', lz: -1900, h: 125, speed: 72, thr: 0.45, gear: 1, flaps: 1 },
+          desc: 'Le miroir d\'appontage (« meatball »), l\'ICLS et les brins d\'arrêt du porte-avions Albatros.',
+          steps: [
+            { t: 'Porte-avions droit devant. Train sorti = crosse sortie. Sur le balcon gauche, la <b>boule</b> ambre entre les barres vertes = bonne pente ; boule haute = trop haut, rouge = trop bas.', ok: () => true, hold: 6 },
+            { t: 'Tenez la boule centrée et l\'axe (losanges ICLS à moins d\'un demi-point) : 8 s cumulées.', ok: () => ILS_OK(0.5), hold: 8, sum: true, hint: 'Pente : les gaz. Axe : petites inclinaisons. Ne réduisez pas à l\'impact.' },
+            { t: 'Posez-vous sur le pont : la crosse accroche un brin.', ok: () => !!S.trap || (S.onGround && !!deckAt(plane.position.x, plane.position.z)), hint: 'Visez le seuil du pont, sans arrondi : un appontage est un impact contrôlé.' },
+            { t: 'Laissez le brin vous arrêter (ou freinez : <kbd>Espace</kbd>).', ok: () => S.onGround && S.roll === 0 },
+          ]
+        },
+      ];
+      const TUT = { on: false, id: null, L: null, i: 0, hold: 0, t: 0, mass: 1, st: {}, uiT: 0, wx: null };
+      function lessonById(id) { return LESSONS.find(L => L.id === id); }
+      function airStart(o) {
+        const ap = apById(o.ap); if (!ap) return;
+        const w = toWorld(ap, o.lx || 0, o.lz), h = ap.h;
+        plane.position.set(w.x, ap.y + GEAR + o.h, w.z);
+        plane.quaternion.setFromEuler(new THREE.Euler(0, h, 0));
+        Object.assign(S, {
+          onGround: false, airborne: true, speed: o.speed, roll: 0, vy: 0, heading: h, throttle: o.thr ?? 0.5,
+          gearPos: o.gear ?? (AC.retract ? 0 : 1), gearTarget: o.gear ?? (AC.retract ? 0 : 1), flapPos: o.flaps || 0, flapTarget: o.flaps || 0,
+          flight: { from: 'AIR', time: 0, dist: 0, maxAlt: 0, maxSpeed: 0, fuelUsed: 0 }
+        });
+        S.vel.set(Math.sin(h) * o.speed, 0, Math.cos(h) * o.speed); S.prevVel.copy(S.vel); S.va.copy(S.vel);
+        snapCamera = true;
+      }
+      function startLesson(id) {
+        const L = lessonById(id); if (!L) return;
+        closeAllModals(); cancelContract(null, true); if (COMBAT) COMBAT.abort();
+        if (MAP.id !== 'vallee') { switchMap('vallee', () => startLesson(id)); return; }   // l'école se fait à Vallée (la carte la plus facile)
+        if (!TUT.wx) TUT.wx = Object.assign({}, WX);
+        const p = WIND_PRESETS[L.wx || 'calme']; Object.assign(WX, { base: p.base, gust: p.gust, turb: p.turb, preset: L.wx || 'calme' });
+        mission.active = false;
+        if (AC.id !== L.ac) { S.crashed = true; setAircraft(L.ac); }
+        S.home = 'VAL'; placeAtAirport('VAL');
+        Object.assign(TUT, { on: true, id, L, i: 0, hold: 0, t: 0, mass: L.mass || 1, st: {}, uiT: 0 });
+        NAV.lock = L.air ? apById(L.air.ap) : L.cat === 'cargo' ? apById('VAL') : null;   // la navigation et l'ILS visent le terrain de la leçon
+        if (L.air) airStart(L.air);
+        if (L.combat && COMBAT) COMBAT.startCustom(Object.assign({}, L.combat, { onWin: () => { if (TUT.on && TUT.id === id) lessonWin(); }, onFail: r => lessonFail(id, r) }));
+        document.body.classList.add('tut'); showPanel('tutPanel', true);
+        Snd.beep(880, 0.08);
+        renderTut();
+      }
+      function stopLesson(silent) {
+        if (!TUT.on) return;
+        const combat = TUT.L.combat;
+        TUT.on = false; TUT.mass = 1; NAV.lock = null;
+        document.body.classList.remove('tut'); showPanel('tutPanel', false);
+        if (TUT.wx) { Object.assign(WX, TUT.wx); TUT.wx = null; persist(); }
+        if (combat && COMBAT) COMBAT.abort();
+        if (!silent) toast('Leçon interrompue', 'info');
+      }
+      function lessonWin() {
+        const L = TUT.L, idx = LESSONS.indexOf(L), next = LESSONS[idx + 1];
+        const first = !DB.school.done[L.id];
+        DB.school.done[L.id] = { date: new Date().toISOString(), time: Math.round(TUT.t) }; persist();
+        stopLesson(true);
+        Snd.beep(660, .12); setTimeout(() => Snd.beep(990, .2), 150); setTimeout(() => Snd.beep(1320, .25), 320);
+        const gr = S.lastTouch != null && S.onGround ? gradeLanding(S.lastTouch, S.lastLat || 0) : null;
+        showDialog('Leçon réussie',
+          `<p class="dmsg">${esc(L.name)} · ${esc(CATS[L.cat])}${first ? ' <span class="ok">· nouvelle qualification</span>' : ''}</p>` +
+          kv([['Durée', fmtTime(TUT.t)], ['Avion', AC.name], ...(gr ? [['Atterrissage', `${S.lastTouch.toFixed(1)} m/s · ${gr.label} <span class="stars">${starStr(gr.stars)}</span>`]] : []),
+          ['Progression', `${Object.keys(DB.school.done).length} / ${LESSONS.length} leçons`]]),
+          [['École', () => openHub('ecole')], ['Vol libre', null], next ? ['Leçon suivante', () => startLesson(next.id), true] : ['Missions de transport', () => openHub('transport'), true]], 'good');
+      }
+      function lessonFail(id, reason) {
+        if (!TUT.on || TUT.id !== id) return;
+        stopLesson(true);
+        showDialog('Leçon interrompue', `<p class="dmsg">${esc(reason)}</p><p class="hint">Chaque leçon peut être recommencée autant de fois que nécessaire.</p>`,
+          [['École', () => openHub('ecole')], ['Recommencer', () => startLesson(id), true]], 'bad');
+      }
+      function stepOf() { return TUT.L.steps[TUT.i]; }
+      function nextStep() {
+        TUT.i++; TUT.hold = 0; TUT.stepT = 0;
+        if (TUT.i >= TUT.L.steps.length) { if (TUT.L.combat && COMBAT && COMBAT.state.active) return; lessonWin(); return; }
+        Snd.beep(990, 0.07); renderTut();
+      }
+      function tutTick(dt) {
+        if (S.paused || S.crashed) return;
+        TUT.t += dt; TUT.stepT = (TUT.stepT || 0) + dt;
+        const st = TUT.st;
+        st.roll = (st.roll || 0) + wrap180(S.bank - (st.bank ?? S.bank)); st.bank = S.bank;   // roulis cumulé (tonneau)
+        if (TUT.i >= TUT.L.steps.length) return;
+        const s = stepOf();
+        if (s.ok()) {
+          TUT.hold += dt;
+          if (TUT.hold >= (s.hold || 0)) { nextStep(); return; }
+        } else if (!s.sum) TUT.hold = 0;
+        TUT.uiT -= dt;
+        if (TUT.uiT <= 0) { TUT.uiT = 0.1; renderTutDyn(); }
+      }
+      function renderTut() {
+        const L = TUT.L, s = stepOf(); if (!s) return;
+        setText('tutName', `ÉCOLE · ${L.name.toUpperCase()}`);
+        setText('tutStepN', `${TUT.i + 1}/${L.steps.length}`);
+        if (s.ok === stepOf().ok) TUT.st.roll = 0;
+        $('tutText').innerHTML = typeof s.t === 'function' ? s.t() : s.t;
+        renderTutDyn();
+      }
+      function renderTutDyn() {
+        const s = stepOf(); if (!s) return;
+        $('tutBar').style.width = (s.hold ? Math.min(1, TUT.hold / s.hold) * 100 : 0) + '%';
+        const hint = s.hint && TUT.stepT > 20 ? '💡 ' + s.hint : '';
+        if ($('tutHint').textContent !== hint) $('tutHint').textContent = hint;
+      }
+      $('tutSkip').addEventListener('click', e => { e.currentTarget.blur(); if (TUT.on) nextStep(); });
+      $('tutRestart').addEventListener('click', e => { e.currentTarget.blur(); if (TUT.on) startLesson(TUT.id); });
+      $('tutQuit').addEventListener('click', e => { e.currentTarget.blur(); stopLesson(); });
+      addEventListener('keydown', e => { if (e.key === 'Tab' && TUT.on) TUT.st.tab = true; });
+
+      // R recommence la leçon ; changer de carte arrête leçon et contrat
+      const _resetFlight = resetFlight;
+      resetFlight = function () { if (TUT.on) startLesson(TUT.id); else _resetFlight(); };
+      const _loadMap = loadMap;
+      loadMap = function (id) { stopLesson(true); cancelContract(null, true); const r = _loadMap(id); offersMap = null; return r; };
+
+      // ════════════════════════ Centre des missions (J) : école, transport, combat ════════════════════════
+      let hubTab = 'ecole';
+      const TABS = [['ecole', '🎓 École de pilotage'], ['transport', '📦 Transport civil'], ['combat', '🎯 Combat']];
+      const tabBar = cur => TABS.map(([k, l]) => `<button data-mstab="${k}" class="${cur === k ? 'on' : ''}">${l}</button>`).join('');
+      function openHub(tab) {
+        tab = tab || hubTab;
+        if (tab === 'combat' && COMBAT) { hubTab = 'combat'; COMBAT.openCampaign(); return; }
+        hubTab = tab; openModal('msModal'); renderHub();
+      }
+      function renderHub() {
+        $('msTabs').innerHTML = tabBar(hubTab);
+        $('msBody').innerHTML = hubTab === 'transport' ? renderTransport() : renderSchool();
+      }
+      function renderSchool() {
+        const n = Object.keys(DB.school.done).length;
+        let html = `<div class="msbar"><span class="hint">Leçons guidées pas à pas, sur la carte Vallée. Chaque consigne se valide d'elle-même ; <kbd>R</kbd> recommence la leçon.</span><b class="val">${n} / ${LESSONS.length} qualifications</b></div><div class="msgrid">`;
+        let cat = null;
+        for (const L of LESSONS) {
+          if (L.cat !== cat) { cat = L.cat; html += `<h3>${CATS[cat]}</h3>`; }
+          const d = DB.school.done[L.id], a = AIRCRAFT[L.ac];
+          html += `<div class="mscard ${d ? 'done' : ''}">
+            <h4><span>${esc(L.name)}</span><span class="stars">${d ? '✔' : ''}</span></h4>
+            <div class="tags"><span class="tag">${esc(a ? a.name : L.ac)}</span><span class="tag ${L.diff >= 3 ? 'warn' : ''}">${'◆'.repeat(L.diff)}${'◇'.repeat(4 - L.diff)}</span><span class="tag">${L.steps.length} étapes</span>${L.air ? '<span class="tag">départ en vol</span>' : ''}</div>
+            <p>${esc(L.desc)}</p>
+            ${d ? `<div class="srow"><span>Réussie en</span><b class="val">${fmtTime(d.time || 0)}</b></div>` : ''}
+            <button class="btn ${d ? '' : 'primary'}" data-lesson="${L.id}">${d ? 'Refaire' : 'Commencer'}</button>
+          </div>`;
+        }
+        return html + '</div>';
+      }
+      function renderTransport() {
+        refreshOffers(false);
+        const C = DB.career, c = capOf(AC);
+        let html = `<div class="msstats">
+          <div class="stat"><span class="lbl">Solde</span><b>${eur(C.money)}</b></div>
+          <div class="stat"><span class="lbl">Contrats</span><b>${C.contracts}</b></div>
+          <div class="stat"><span class="lbl">Passagers</span><b>${C.pax.toLocaleString('fr-FR')}</b></div>
+          <div class="stat"><span class="lbl">Fret livré</span><b>${kgStr(C.kg)}</b></div></div>
+          <div class="msbar"><span class="hint">Carte ${esc(MAP.name)} · avion actuel ${esc(AC.name)} : ${c.pax ? c.pax + ' pass. · ' : ''}${c.kg ? kgStr(c.kg) : 'pas de charge utile'}. Accepter un contrat vous place au départ ; si votre avion est trop petit, le plus petit avion adapté est choisi.</span>
+          <button class="btn" id="msNewOffers">↻ Nouvelles offres</button></div>`;
+        if (CT.active) html += `<div class="mscard cur" style="margin-bottom:10px"><h4><span>Contrat en cours · ${CT.o.from} → ${CT.o.to}</span><span>${eur(CT.o.pay)}</span></h4><p>${esc(loadStr(CT.o))} · délai ${fmtTime(CT.o.time)} · écoulé ${fmtTime(CT.t)}</p><button class="btn danger" data-ctabort>Abandonner</button></div>`;
+        html += '<div class="msgrid">';
+        for (const o of OFFERS) {
+          const A = apById(o.from), B = apById(o.to), list = carriers(o), ok = canCarry(AC, o);
+          html += `<div class="mscard">
+            <h4><span>${o.type === 'pax' ? '🧳' : '📦'} ${o.from} → ${o.to}</span><span>${eur(o.pay)}</span></h4>
+            <div class="tags"><span class="tag">${o.type === 'pax' ? 'Passagers' : 'Fret'}</span>${o.urgent ? '<span class="tag red">Urgent</span>' : ''}${o.fragile ? '<span class="tag warn">Fragile</span>' : ''}${B.carrier ? '<span class="tag warn">⚓ Porte-avions</span>' : ''}</div>
+            <p>${esc(loadStr(o))} de ${esc(A.name)} vers ${esc(B.name)}.</p>
+            <div class="srow"><span>Distance · délai</span><b class="val">${fmtDist(o.dist)} · ${fmtTime(o.time)}</b></div>
+            <div class="srow"><span>Avions possibles</span><b class="val ${ok ? '' : 'warn'}">${list.map(a => a.name).join(', ')}</b></div>
+            <button class="btn primary" data-offer="${o.id}" ${CT.active ? 'disabled' : ''}>${ok ? 'Accepter' : `Accepter avec ${list[0].name}`}</button>
+          </div>`;
+        }
+        return html + '</div>';
+      }
+      $('msBody').addEventListener('click', e => {
+        const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.lesson) startLesson(b.dataset.lesson);
+        else if (b.dataset.offer) acceptOffer(+b.dataset.offer);
+        else if (b.id === 'msNewOffers') { refreshOffers(true); renderHub(); }
+        else if (b.hasAttribute('data-ctabort')) { cancelContract('Contrat abandonné'); renderHub(); }
+      });
+      $('msTabs').addEventListener('click', e => { const b = e.target.closest('[data-mstab]'); if (b) openHub(b.dataset.mstab); });
+      document.querySelector('[data-msclose]').addEventListener('click', closeAllModals);
+      $('msModal').addEventListener('mousedown', e => { if (e.target.id === 'msModal') closeAllModals(); });
+      // Mêmes onglets en tête de la fenêtre de campagne
+      const cbCard = document.querySelector('#cbModal .card');
+      if (cbCard) {
+        const t = document.createElement('div'); t.className = 'mstabs'; t.innerHTML = tabBar('combat');
+        cbCard.querySelector('.chead').after(t);
+        t.addEventListener('click', e => { const b = e.target.closest('[data-mstab]'); if (b && b.dataset.mstab !== 'combat') openHub(b.dataset.mstab); });
+      }
+      window.SKYWAY_MISSIONS = {
+        open: openHub,
+        toggle() { if ($('msModal').classList.contains('open') || $('cbModal').classList.contains('open')) closeAllModals(); else openHub(); },
+        startLesson, stopLesson, acceptOffer, refreshOffers, cancelContract,
+        get offers() { return OFFERS; }, tut: TUT, ct: CT, LESSONS
+      };
+      if (COMBAT && COMBAT.button) {
+        COMBAT.button.title = 'Missions : école, transport, combat';
+        const sp = COMBAT.button.querySelector('span'); if (sp) sp.textContent = 'Missions';
+      }
+      // Records : carrière de transport et qualifications
+      const _renderRecords = renderRecords;
+      renderRecords = function () {
+        _renderRecords();
+        const C = DB.career;
+        $('recBody').insertAdjacentHTML('beforeend', `<h3>Transport civil</h3><div class="cards">
+          <div class="stat"><span class="lbl">Solde</span><b>${eur(C.money)}</b></div><div class="stat"><span class="lbl">Contrats réussis · perdus</span><b>${C.contracts} · ${C.failed}</b></div>
+          <div class="stat"><span class="lbl">Passagers</span><b>${C.pax.toLocaleString('fr-FR')}</b></div><div class="stat"><span class="lbl">Fret</span><b>${kgStr(C.kg)}</b></div></div>
+          <h3>École de pilotage</h3><table class="tbl"><tr><th>Leçon</th><th>Catégorie</th><th>Avion</th><th>Statut</th></tr>${LESSONS.map(L => `<tr><td>${esc(L.name)}</td><td>${CATS[L.cat]}</td><td>${esc(AIRCRAFT[L.ac] ? AIRCRAFT[L.ac].name : L.ac)}</td><td class="${DB.school.done[L.id] ? 'ok' : ''}">${DB.school.done[L.id] ? '✔ ' + fmtTime(DB.school.done[L.id].time || 0) : '—'}</td></tr>`).join('')}</table>`);
+      };
+      document.querySelector('#help table').insertAdjacentHTML('beforeend', `<tr><td><kbd>J</kbd></td><td>Missions : école, transport, combat</td></tr>`);
+      toast('Nouveau : école de pilotage, transport de fret et de passagers (J · Missions).', 'ok');
     })();
   </script>
 </body>
