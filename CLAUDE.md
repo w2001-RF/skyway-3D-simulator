@@ -63,7 +63,16 @@ Site files next to `index.html` (static, served by GitHub Pages; the game never 
 - InstancedMesh culling uses the geometry bounding sphere only: either set `frustumCulled = false` (`instanced()`), or give each mesh its own geometry clone with a hand-set `boundingSphere` (`buildTrees`).
 - `ConeGeometry` apex is +Y; translate/rotate it as documented in the code.
 
-**Ground layers:** `polygonOffset` factors go -1 (fields/clearing), -2 (asphalt), -3 (water), -4 (paint), -5 (runway numbers).
+**Ground layers:** `polygonOffset` factors go -1 (fields/clearing), -2 (asphalt), -3 (water, rubber deposits), -4 (paint), -5 (runway numbers).
+
+**Colour management** (shim at the top of the main script, mimics three r152+; critical):
+- Rendering is linear with `outputEncoding = sRGBEncoding` and ACES Filmic tone mapping (`EXPOSURE` 0.82). The ACES function is wrapped with a light grade (+8 % saturation, slight contrast, warm highlights) in `ShaderChunk.tonemapping_pars_fragment`.
+- `Color.setHex/setStyle/setHSL` take **sRGB** and store linear; `getHex/getStyle/getHSL` return sRGB. `setRGB`, `fromArray` and raw float arrays are **linear**: convert with `.convertSRGBToLinear()` when the values are sRGB (e.g. palette arrays / 255).
+- Every `THREE.CanvasTexture` defaults to `sRGBEncoding` (colour). Data textures (bump, detail multipliers, masks, noise) must set `t.encoding = THREE.LinearEncoding` (see `TEX.detail`, `skinTex` bump, `dataTex(…, linear = true)`).
+- Additive, Points and Sprite materials get `toneMapped = false` automatically (`Material.setValues` hook); set it by hand on emissive "light" MeshBasic materials (`MAT.edgeLight`, `thrLight`, `alsLight`, lenses).
+- A custom `ShaderMaterial` must end with `#include <tonemapping_fragment>` and `#include <encodings_fragment>` (and the fog chunks if `fog: true`), or it renders too dark.
+- Fog is applied in linear space **before** tone mapping (the shim reorders `ShaderLib` fragment shaders) and the fog chunks are replaced by an atmospheric height fog (§4).
+- r128 reuses one program per material: every `InstancedMesh` sharing a material must agree on having an `instanceColor` (call `setColorAt` on all of them), otherwise the frame throws `Cannot read properties of null (reading 'isInterleavedBufferAttribute')`.
 
 ## 4. World: maps, terrain, scenery
 - Plane-center height on gear: `GEAR = 1.6`. Wheels bottom at −1.6 local.
@@ -109,28 +118,41 @@ Site files next to `index.html` (static, served by GitHub Pages; the game never 
 
 **Rendering a map (`loadMap(id)`; `switchMap(id, then)` adds the loading overlay)**
 - `buildTerrain`: tiles of `TILE = 32` cells (one Mesh each, shared Uint16 index, normals from the grid) for frustum culling.
-- Terrain material: Lambert with `map = buildColorMap()`. This is one canvas over the whole grid (`GFX.cmap` px), colored per pixel by `terrainColor(palette, h, slope, noise, forest, out, nearWater)`, with farm plots painted on gentle lowland.
-- `onBeforeCompile` multiplies the color by `TEX.detail` at two scales (about 24 m and 270 m).
-- `buildWater`: per-tile quads at `SEA` on submerged cells, plus a frame of ocean beyond the grid. `MAT.water` is rebuilt per map.
+- Terrain material (`terrainMaterial()`): per-pixel Phong with `map = buildColorMap()`. The colour map is one canvas over the whole grid (`GFX.cmap` px), colored per pixel by `terrainColor(palette, h, slope, noise, forest, out, nearWater)`, with farm plots painted on gentle lowland.
+- `onBeforeCompile` adds material detail on top of the colour map:
+  - per-vertex `aSurf` = rock, snow, sand, forest weights (`terrainSurface`, same rules as `terrainColor`) and `aAO` (cavity: height minus the mean of ±2 cells, 0.68–1.08);
+  - `TEX.terDet` (RGBA detail luminance: grass, rock, sand, canopy) at 7 m and 37 m, rock in **triplanar** projection at 19 m and 150 m; `TEX.terN1` / `TEX.terN2` (slopes) perturb the normal in world space (`TERRAIN_HQ` define, all tiers except Bas). Fine detail fades out between 0.7 and 2.4 km, the 150 m rock layer stays to ~5 km;
+  - `TEX.detail` at ~270 m for large-scale variation, and cloud shadows (`TEX.cloudShadow`, offset `CLOUD.shadowOff` drifting with the 400 m wind).
+- Detail textures are generated once by `terrainDetailTextures()` (`tileNoise` = tileable value noise; 256 px, 512 on Ultra).
+- `buildWater`: per-tile quads at `SEA` on submerged cells, plus a frame of ocean beyond the grid. `MAT.water` / `MAT.lakeWater` (`makeWaterMat`) are rebuilt per map:
+  - MeshStandard (roughness 0.07, Fresnel sky reflection through the environment map, sun glint) with `onBeforeCompile`: two scrolling normal maps (`TEX.waterN`, 170 m and 43 m, amplitude fading with distance), colour from `WATER.depth` (per-map texture of water depth on the grid, 1 = 25 m; lakes get a bowl profile), shore foam where depth < ~2 m, transparency only right at the shore. `WATER.time` = `simT`.
 - `buildLakes`: discs + sand rings at `l.y`.
 - `buildFields`: crisp textured field meshes, only on exactly flat ground, one merged mesh per `TEX.fields` texture.
-- `buildTrees`: one trunk + one leaf `InstancedMesh` per tile.
+- `buildTrees`: one `InstancedMesh` per species per tile (trunk and crown merged by `vegGeometry`, cached in `VEG.geo`).
+  - Species (`treeKind`): `conifer` (stacked cones), `broad` (lumpy crown of icospheres with spherical normals), `palm` (tropical shores), `bush` (desert). Colours `VEG_COLS` + per-tree variation via `setColorAt`.
+  - Vertex colours bake the crown shading; `aTrunk = 1` keeps trunks untinted. `vegMaterial` sways crowns in the vertex shader (`VEG.time`, `VEG.wind` from the ground wind).
   - Each tile's cloned geometry gets a hand-set `boundingSphere`, so camera and shadow culling work.
-  - Leaf colors come from `setColorAt`.
-  - Count = `GFX.treeDen` per km² × `MAP.trees`, capped by `GFX.treeMax`, accepted with probability `FO^1.6`.
-- Airports: `buildAirport(ap)` (group at `ap.y`, windsock at `ap.y`, a PAPI at each end). Desert maps use `MAT.clearingSand`. Carriers use `buildCarrier(ap)` (with a meatball).
+  - Count = `GFX.treeDen` per km² × `MAP.trees`, capped by `GFX.treeMax`, accepted with probability `FO^2.2` (dense forests, few isolated trees). Bas uses fewer cones / crown lumps.
+- Airports: `buildAirport(ap)` (group at `ap.y`, windsock at `ap.y`, a PAPI at each end, tower, hangar). Desert maps use `MAT.clearingSand`. Carriers use `buildCarrier(ap)` (with a meatball).
+  - Detail sub-group (registered in `AP_DETAIL`, hidden beyond 3.5 km by `updateAirportLOD`): tyre-rubber decals on both touchdown zones (`MAT.rubber`), approach lights on poles every 30 m over 300 m with a crossbar at 150 m (`MAT.alsLight`), an arched corrugated hangar (`MAT.hangarMetal`), a glazed terminal (one-instance `InstancedMesh` with the city office facade, `instanceColor` set).
 - Cities (`CITIES`, `buildCities` → `buildCity(c)`, after the airports so `obstacleCap` sees them):
   - Square blocks of `CITY_KIND[kind].block` m (metro 110, city 96, town 80, village 64) on a grid rotated by `c.angle`, visited from the centre outward. A block gets street ground only if its centre is dry and flat at `c.y`; buildings only if `lotOK` (5 points flat, dry, not `blockedForScenery`).
   - Zoning by distance ratio t: metro towers (t < 0.2, 70–200 m, first block = a 240–290 m landmark), offices (< 0.45), mid-rise (< 0.7), houses; city/town/village scale down; villages get a church. 7 % of blocks are parks (green quad + trees). Suburb density = `GFX.city` (0.45 Bas … 1 Élevé/Ultra), villages ×0.45.
   - `obstacleCap(x, z, gy)` caps every building under a 2° approach surface (widening 15 %) out to 6 km from each runway end, and under a lateral slope beside the runways; buildings that would be under 3 m are skipped. Approaches stay at least ~50 m above roofs.
   - Rendering per city: one `InstancedMesh` each for office facades (`MAT.bldgOffice`), other facades (`MAT.bldgFlat`), roof prisms (`GEO.roof`, `MAT.roof`) and park trees, plus one merged mesh for the street blocks (`MAT.cg_<kind>`, one block per texture tile) and one for parks; hand-set bounding sphere for culling; red obstruction lights (`aidPoints`) on buildings over 110 m.
-  - Facade shader (`facadeMat`): the UVs are rescaled by the instance scale, so one texture tile = one bay × one floor at any building size; top faces get a flat roof colour. Per-instance colours tint the facades.
+  - Facade shader (`facadeMat`): the UVs are rescaled by the instance scale, so one texture tile = one bay × one floor at any building size; top faces get a flat roof colour (tint varies per building).
+    - Facade textures (`facadeTex`, 128 px) carry a window mask in alpha (255 = glass, 128 = wall). From Moyen up the material is a MeshStandard with the sky reflection: glass windows smooth and reflective (offices 0.05 roughness / 0.7 metalness), walls matte. Lambert on Bas.
+    - Per-window brightness variation (hash of floor/bay and building), darker wall base (fake ambient occlusion over the first 7 m). Per-instance colours tint the facades.
+  - Rooftop equipment on flat roofs above 8 m (`L.units`, `MAT.roofUnit`, separate RNG `RU` so the city layout is unchanged).
   - Collisions: `addFootprint` stores oriented boxes in `BLD.map` (64 m cells); `buildingAt(x, y, z, pad)` returns the box hit.
   - `ROADS` (`cityRoads()`): each city links to its nearest airport and nearest city (metro: two cities). Painted on the ground colour map (skipped over water) and drawn with the city names on the M map.
 - `buildMapImage`: 720 px map image (relief colors × hillshade + contour lines every 100 m, darker every 500 m) and `PEAKS` (local maxima ≥ 150 m, at least 1.8 km apart).
 - Everything goes in `worldGroup`. `disposeWorld` frees the per-map geometry, materials and textures, but keeps `MAT`, `GEO`, `TEX` and `numberMats`.
+- Sky and atmosphere (`SKY_GLSL`, `setupAtmosphere`, `setSkyColors`):
+  - `skyColor(dir)` is shared by the sky dome and the environment map (`updateEnvMap`): zenith → horizon gradient, sun aureole and a ~0.6° sun disc (the old `sunDisc` mesh is now an empty `Object3D`). `skyTop` is a deep blue paled toward warm hazes, `skyHz` = `MAP.haze`.
+  - `ShaderChunk.fog_*` are replaced: exponential height fog (scale height `ATMO.scale` 1250 m, density `ATMO.density` / `fogFar`) integrated along the view ray, tinted toward the sun with the same aureole term as the sky, plus `smoothstep(fogNear, fogFar)` (near = 0.72 far) to hide the world edge. `vFogOff` = camera → point offset in world space (transposed view rotation).
 - Haze color (`MAP.haze`) drives fog, background and sky horizon.
-- Clouds: `GFX.clouds` meshes (puffs merged), recycled in a square of ±`GFX.fog·1.1` around the plane (`updateClouds`), altitude band `MAP.clouds`.
+- Clouds (`CLOUD`): one `InstancedMesh` of camera-facing puff quads for all clouds (custom `ShaderMaterial`, fog included). 0.75 × `GFX.clouds` cumulus of 200–660 m, 7–17 puffs each (dome shape, flat grey base, sunlit tops), atlas of 4 puff textures (`cloudPuffTexture`). `clouds[i] = {position, puffs}` are recycled in a square of ±`GFX.fog·1.1` around the plane (`updateClouds`), bases in the band `MAP.clouds` (realistic bases, e.g. Vallée 700–1150 m). `writeClouds` sorts puffs back to front every 8 frames; puffs fade when the camera flies through them.
 - The truck only exists on maps with a `road`.
 
 **Aircraft carrier (`CV`, local frame like an airport: +Z = bow)**
@@ -267,7 +289,7 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - Lights: coloured lenses (`lens`, vertex colours) plus additive `Points` halos (`glowPts`). Nav lights are always on; `beacon` and `strobe` blink in `animatePlaneParts`.
 - Templates: `PLANE_TPL` (Map keyed by the `look` object) caches one built model per type. `createPlane` / `createJet` return `instancePlane(tpl)`, a `clone()` sharing geometry and materials, with `userData.parts` rebuilt from the `userData.part` tags (`prop, blades, disc, gear, ail, flap, elev, rud, rud2, beacon, strobe, flame, pylon, pilot`). **Never dispose a plane's geometry or materials**: they are shared with the template and with enemies of the same type.
 - Materials: `airMats()` (shared: chrome, tyres, interior, lenses, glow), `paintMat` (livery), `trimMat(colour)` (generic panel skin tinted).
-  - All are `MeshStandardMaterial`s created through `envMat`, which registers them in `ENV_MATS`.
+  - All are `MeshStandardMaterial`s created through `envMat`, which registers them in `ENV_MATS`. Liveries use `TEX.grime` as roughness map (wear variation).
   - `updateEnvMap()` (called by `loadMap`) renders the map's sky, haze, ground and sun into a PMREM environment and assigns it to every registered material: reflections on paint, canopies and metal.
 
 ## 7. Controls (keyboard, AZERTY + QWERTY)
@@ -352,7 +374,8 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
   - `terrN` = terrain grid resolution (160–352). `cmap` = ground color texture (1024/2048).
   - The physics uses the same grid, so terrain detail depends on the tier. `GFX` is the resolved tier, available as a global (the combat extension reads `GFX.puffs`).
 - Choice: `DB.settings.gfx` (`'auto'` or a tier id). The `?gfx=` URL parameter overrides it, which still works when localStorage is blocked. `setGfx(id)` confirms with the user, then reloads the page, because scene counts and MSAA are fixed at init.
-- Renderer: `antialias: GFX.aa`, `powerPreference: 'high-performance'` (selects the discrete GPU on dual-GPU laptops). Shadows are off on low; PCF on medium, PCFSoft above. Anisotropy is capped by `GFX.aniso`. The shadow box is ±`GFX.box` m.
+- Renderer: `antialias: GFX.aa`, `powerPreference: 'high-performance'` (selects the discrete GPU on dual-GPU laptops). sRGB output + ACES (§3). Lights: `hemiLight` 0.62, `sunLight` 2.35. Shadows are off on low; PCF on medium, PCFSoft above. Anisotropy is capped by `GFX.aniso`.
+- Adaptive shadow box (`updateWorld`): ±(`GFX.box` + 0.8 × AGL), up to 7 × `GFX.box`, rounded to 10 m; `normalBias` grows with it. Near the ground shadows stay sharp; higher up buildings, trees and hills keep casting shadows.
 - Dynamic resolution (`DYN`, `updateDynRes(raw dt)`, toggle `DB.settings.dynRes`):
   - It measures fps over 1.5 s windows.
   - Below 48 fps it lowers the pixel ratio, down to `GFX.prMin`.
@@ -530,6 +553,7 @@ DB = {
 - Scenery must go in `worldGroup` (not `scene`), or it survives map changes and leaks.
 - `surfaceAt` and `deckAt` return shared objects (`SURF`, `DK`); copy the fields before calling them again.
 - Map generation is synchronous: ~70 ms for heights, plus the color map (~0.2 s at 1024 px, more at 2048), plus the cities (the Métropole has ~10 000 buildings). In software rendering (SwiftShader) a full `loadMap` takes 0.75–1.5 s. `switchMap` shows `#loading` first.
+- Realism pass (colour management, sky/fog, clouds, water, terrain detail, vegetation, glass, airports): draw calls equal or lower than before (headless, one frame near an airport: Élevé 150–231 vs 175–244, Bas 114–162 vs 115–157), map loads unchanged; startup ~+1 s in SwiftShader (mostly compiling the richer shaders). Per-pixel cost is higher (terrain HQ ≈ 16 texture fetches, PBR water and glass); dynamic resolution absorbs it. Before/after screenshots: a fixed shot set rendered headless (`probe_shot2.js` / `shots.ps1` in the scratchpad).
 - City materials and geometries (`MAT.bldgOffice`, `MAT.bldgFlat`, `MAT.roof`, `MAT.park`, `MAT.parkTree`, `MAT.cg_*`, `GEO.bldg`, `GEO.roof`, `GEO.parkTree`) are created once by `cityMats()` and kept across maps; each city's instanced meshes use geometry clones (disposed with the map).
 - Enemy units, bullets and missiles ignore buildings (combat only runs on Vallée, whose towns are away from the mission areas).
 - Headless Edge does not run requestAnimationFrame. Test physics by calling `physicsStep(1/120)` in a loop.
