@@ -8,7 +8,53 @@
   <meta name="x5-orientation" content="landscape">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>SKYWAY · Simulateur de vol 3D</title>
+  <title>SKYWAY · Simulateur de vol 3D gratuit dans le navigateur</title>
+  <!-- SEO : l'URL canonique suit l'hébergement GitHub Pages (à changer avec un domaine personnalisé, avec og:url, og:image, sitemap.xml) -->
+  <meta name="description" content="Simulateur de vol 3D gratuit, sans installation : 9 avions (école, ligne, cargo, chasse), 7 cartes avec villes et relief, porte-avions, ILS, école de pilotage, missions de transport et de combat, multijoueur en ligne.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="author" content="w2001-RF">
+  <meta name="theme-color" content="#0b1118">
+  <link rel="canonical" href="https://w2001-rf.github.io/skyway-3D-simulator/">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SKYWAY">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:title" content="SKYWAY · Simulateur de vol 3D gratuit">
+  <meta property="og:description" content="Pilotez 9 avions sur 7 cartes 3D avec villes, montagnes et porte-avions. École de pilotage, transport, combat et multijoueur, directement dans le navigateur.">
+  <meta property="og:url" content="https://w2001-rf.github.io/skyway-3D-simulator/">
+  <meta property="og:image" content="https://w2001-rf.github.io/skyway-3D-simulator/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Avion SKYWAY en vol au-dessus de la ville de Grand-Lumière">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SKYWAY · Simulateur de vol 3D gratuit">
+  <meta name="twitter:description" content="9 avions, 7 cartes 3D, école de pilotage, missions et multijoueur, dans le navigateur.">
+  <meta name="twitter:image" content="https://w2001-rf.github.io/skyway-3D-simulator/og-image.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "SKYWAY · Simulateur de vol 3D",
+    "url": "https://w2001-rf.github.io/skyway-3D-simulator/",
+    "image": "https://w2001-rf.github.io/skyway-3D-simulator/og-image.png",
+    "description": "Simulateur de vol 3D gratuit dans le navigateur : avions civils et militaires, cartes procédurales avec villes et relief, porte-avions, ILS et PAPI, école de pilotage, contrats de transport, campagne de combat et multijoueur pair à pair.",
+    "inLanguage": "fr",
+    "genre": ["Simulation", "Simulateur de vol", "Action"],
+    "gamePlatform": ["Navigateur web", "PC", "Mobile"],
+    "applicationCategory": "Game",
+    "operatingSystem": "Windows, macOS, Linux, Android, iOS",
+    "playMode": ["SinglePlayer", "MultiPlayer"],
+    "numberOfPlayers": {"@type": "QuantitativeValue", "minValue": 1, "maxValue": 8},
+    "isAccessibleForFree": true,
+    "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"},
+    "author": {"@type": "Person", "name": "w2001-RF", "url": "https://github.com/w2001-RF"},
+    "sameAs": ["https://github.com/w2001-RF/skyway-3D-simulator"]
+  }
+  </script>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -885,6 +931,55 @@
       min-width: 0
     }
 
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap
+    }
+
+    .noscript {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      padding: 40px 24px;
+      background: #0b1118;
+      color: #e6eef7;
+      font: 16px/1.5 system-ui, sans-serif
+    }
+
+    .noscript a,
+    .sitelinks a {
+      color: var(--cyan, #5ad1ff)
+    }
+
+    .sitelinks {
+      margin: 4px 0 0
+    }
+
+    #ctlBox {
+      display: flex;
+      flex-direction: column;
+      gap: 4px
+    }
+
+    #ctlCurve {
+      align-self: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, .25)
+    }
+
+    .ctlfoot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px
+    }
+
     .mappick button {
       display: flex;
       flex-direction: column;
@@ -1326,6 +1421,15 @@
 </head>
 
 <body>
+  <h1 class="sr-only">SKYWAY, simulateur de vol 3D gratuit dans le navigateur</h1>
+  <noscript>
+    <div class="noscript">
+      <h2>SKYWAY · Simulateur de vol 3D</h2>
+      <p>SKYWAY est un simulateur de vol gratuit qui fonctionne dans le navigateur, sans installation. JavaScript et WebGL
+        sont nécessaires pour jouer.</p>
+      <p><a href="guide.html">Lire le guide du pilote</a> · <a href="privacy.html">Confidentialité</a></p>
+    </div>
+  </noscript>
 
   <div id="topbar" class="glass">
     <div class="brand">SKY<b>WAY</b><small>SIMULATEUR DE VOL</small></div>
@@ -1513,6 +1617,8 @@
     </table>
     <p class="hint" style="margin:6px 0 0">Relâchez une commande : les gouvernes reviennent au neutre et l'avion se
       stabilise.</p>
+    <p class="hint sitelinks"><a href="guide.html" target="_blank" rel="noopener">Guide du pilote</a> · <a
+        href="privacy.html" target="_blank" rel="noopener">Confidentialité</a></p>
   </div>
 
   <div id="acModal" class="modal">
@@ -1542,6 +1648,17 @@
           <div class="seg" id="gfxTiers"></div>
           <label class="sl" style="cursor:pointer"><span>Résolution dynamique</span><input type="checkbox" id="gfxDyn"></label>
           <div class="psum" id="gfxInfo"></div>
+          <span class="lbl" style="margin-top:6px">Manette & inclinaison</span>
+          <div id="ctlBox">
+            <div class="sl"><span>Sensibilité tangage</span><b id="ctlV_p"></b></div><input type="range" data-ctl="p" min="30" max="200" step="5">
+            <div class="sl"><span>Sensibilité roulis</span><b id="ctlV_r"></b></div><input type="range" data-ctl="r" min="30" max="200" step="5">
+            <div class="sl"><span>Sensibilité palonnier</span><b id="ctlV_y"></b></div><input type="range" data-ctl="y" min="30" max="200" step="5">
+            <div class="sl"><span>Zone morte</span><b id="ctlV_dead"></b></div><input type="range" data-ctl="dead" min="0" max="30" step="1">
+            <div class="sl"><span>Progressivité (précision au centre)</span><b id="ctlV_expo"></b></div><input type="range" data-ctl="expo" min="0" max="100" step="5">
+            <div class="sl"><span>Sensibilité inclinaison (mobile)</span><b id="ctlV_tilt"></b></div><input type="range" data-ctl="tilt" min="50" max="200" step="10">
+          </div>
+          <canvas id="ctlCurve"></canvas>
+          <div class="ctlfoot"><span class="hint" id="ctlPad"></span><button class="btn" id="ctlReset">Par défaut</button></div>
         </aside>
       </div>
     </div>
@@ -1708,7 +1825,7 @@
     };
 
     // Aérodromes, lacs et porte-avions de la carte chargée (remplis par loadMap à partir de MAPS)
-    const AIRPORTS = [], LAKES = [], CARRIERS = [];
+    const AIRPORTS = [], LAKES = [], CARRIERS = [], CITIES = [], ROADS = [];
 
     // ════════════════════════ Utilitaires ════════════════════════
     const $ = id => document.getElementById(id);
@@ -1799,6 +1916,7 @@
         ],
         lakes: [{ x: -2250, z: 950, r: 240, y: 0 }, { x: 1250, z: -1250, r: 160, y: 0 }, { x: -4800, z: 3900, r: 320 }],
         road: { x: 90, len: 3000 },
+        cities: [{ name: 'Vallée-Bourg', kind: 'town', x: -950, z: -1150, r: 430 }, { name: 'Port-Côte', kind: 'village', x: 4300, z: -5250, r: 300 }],
         relief(x, z, N) {
           const d = Math.hypot(x, z);
           let h = Math.max(0, N.fbm(x / 2200, z / 2200, 4) * 420 + 40) * smoothstep(900, 3400, d);
@@ -1819,6 +1937,7 @@
           { id: 'GLA', name: 'Altiport du Glacier', x: 5500, z: 7150, h: -1.31, y: 'auto' },
         ],
         lakes: [{ x: -7200, z: -6680, r: 380 }, { x: -1050, z: 7900, r: 300 }],
+        cities: [{ name: 'Grenelle', kind: 'village', x: 350, z: 1500, r: 300 }],
         corridors: [
           { w0: 380, w1: 1700, pts: [[-1500, -10600, 80], [-500, -6000, 120], [500, -2000, 180], [0, 2000, 260], [-1200, 6000, 380], [-800, 10600, 450]] },
           { w0: 330, w1: 1500, pts: [[0, 2000, 260], [-4000, 3500, 520], [-8000, 5000, 700], [-10600, 4500, 760]] },
@@ -1838,6 +1957,7 @@
           { id: 'PA1', name: 'Porte-avions Albatros', x: 0, z: -6200, h: Math.PI / 2, carrier: true },
         ],
         lakes: [],
+        cities: [{ name: 'Port-Royal', kind: 'town', x: 2650, z: 450, r: 420 }],
         islands: [[0, 2500, 3800, 620], [-6500, -3000, 2700, 1300, 1], [6500, -4500, 2400, 380], [5500, 6000, 2100, 480], [-5200, 6600, 1300, 220],
           [9200, 800, 700, 90], [-9500, 2200, 800, 120], [2500, -9500, 650, 70], [-3000, -8800, 900, 140], [8800, -8800, 600, 60], [-9800, -8200, 700, 100]],
         relief(x, z, N) {
@@ -1864,6 +1984,7 @@
           { id: 'PLA', name: 'Grand Plateau', x: -4050, z: -7200, h: 0.26, y: 'auto' },
         ],
         lakes: [],
+        cities: [{ name: 'Oasis', kind: 'village', x: -2950, z: 3950, r: 300 }],
         relief(x, z, N) {
           const v = Math.max(0, N.fbm(x / 2600, z / 2600, 4) + 0.08) * 900, st = 85, q = Math.floor(v / st);
           const h = 380 + (q + smoothstep(0.7, 0.95, v / st - q)) * st;                          // mesas en gradins
@@ -1872,10 +1993,93 @@
           return lerp(floor, h, smoothstep(0.03, 0.1, c));
         }
       },
+      // ── Plaine agricole traversée par un fleuve à méandres : une ville à cheval sur le fleuve, bourgs et villages
+      fleuve: {
+        name: 'Plaine du Fleuve', world: 9000, seed: 71, haze: 0xc4dcec, palette: 'temperate', clouds: [300, 800], trees: 0.8, treeline: 1200, snow: 1e9, fields: 1.6,
+        desc: "Grande plaine cultivée, fleuve à méandres, collines douces au nord et au sud, villes et villages reliés par des routes.",
+        airports: [
+          { id: 'FLV', name: 'Fleuve-Centre', x: 600, z: 1400, h: 0.25, y: 'auto' },
+          { id: 'MOU', name: 'Moulins', x: -4200, z: -3300, h: -0.4, y: 'auto' },
+          { id: 'PRE', name: 'Prés-Verts', x: 4400, z: -3600, h: 0.6, y: 'auto' },
+          { id: 'BOI', name: 'Bois-Joli', x: -3600, z: 2600, h: 1.2, y: 'auto' },
+          { id: 'VIG', name: 'Les Vignes', x: 5200, z: 2800, h: -0.9, y: 'auto' },
+        ],
+        lakes: [{ x: 1900, z: -2900, r: 260 }],
+        cities: [{ name: 'Fleuveville', kind: 'city', x: -600, z: -700, r: 1100, y: 8, angle: 0.3 }, { name: 'Moulins', kind: 'town', x: -4900, z: -2300, r: 450 },
+          { name: 'Prés-Verts', kind: 'village', x: 3600, z: -2700, r: 300 }, { name: 'Bois-Joli', kind: 'village', x: -2900, z: 3300, r: 300 }, { name: 'Les Vignes', kind: 'town', x: 4300, z: 1700, r: 480 }],
+        relief(x, z, N) {
+          const rz = -800 + 650 * Math.sin(x / 2600) + 260 * Math.sin(x / 950 + 1.3), dr = Math.abs(z - rz);   // lit du fleuve (méandres)
+          let h = 18 + N.fbm(x / 3000, z / 3000, 3) * 40;
+          h += smoothstep(3500, 8000, z) * Math.max(0, N.fbm(x / 1800 + 3, z / 1800, 4) + 0.3) * 420;
+          h += smoothstep(-3500, -8000, z) * Math.max(0, N.fbm(x / 2200 - 5, z / 2200 + 2, 3) + 0.2) * 220;
+          h = lerp(6, Math.max(h, 8), smoothstep(250, 1400, dr));                                  // plaine alluviale
+          return lerp(-8, h, smoothstep(60, 170, dr));
+        }
+      },
+      // ── Métropole côtière : gratte-ciel au fond d'une baie, fleuve en ville, collines et mont au nord-ouest
+      metro: {
+        name: 'Métropole', world: 10000, seed: 83, haze: 0xcfd6dc, palette: 'temperate', clouds: [400, 1100], trees: 0.7, treeline: 1300, snow: 1e9, fields: 0.7,
+        desc: "Une grande ville au fond d'une baie : quartier d'affaires et tours, fleuve, port, banlieues, collines et mont au nord.",
+        airports: [
+          { id: 'GLM', name: 'Grand-Lumière Intl', x: 4600, z: -3300, h: 0.35, y: 'auto' },
+          { id: 'PLN', name: 'Plaine du Levant', x: -4800, z: 1200, h: -0.3, y: 'auto' },
+          { id: 'COL', name: 'Les Collines', x: 1600, z: 4400, h: -0.2, y: 'auto' },
+          { id: 'PES', name: 'Port-Est', x: -6200, z: -3600, h: 0.5, y: 'auto' },
+        ],
+        lakes: [],
+        river: [[-10500, 7500], [-7600, 5400], [-5200, 3800], [-2600, 1800], [-800, 300], [100, -1600], [300, -3600]],
+        cities: [{ name: 'Grand-Lumière', kind: 'metro', x: 0, z: -1300, r: 2300, y: 6, angle: 0.12 }, { name: 'Saint-Fleuve', kind: 'town', x: -3500, z: 2600, r: 560, y: 12 },
+          { name: 'Bellevue', kind: 'town', x: 2700, z: 2600, r: 480 }, { name: 'Port-Est', kind: 'city', x: -5400, z: -4900, r: 800, y: 5, angle: 0.5 }, { name: 'Mont-Clair', kind: 'village', x: 4300, z: 2700, r: 300 }],
+        relief(x, z, N) {
+          let h = 25 + N.fbm(x / 2600, z / 2600, 3) * 30;
+          h += smoothstep(1500, 6500, z) * Math.max(0, N.fbm(x / 2000 + 4, z / 2000 - 1, 4) + 0.25) * 650;                    // collines au nord
+          h += Math.pow(Math.max(0, 1 - Math.hypot(x - 5600, z - 4800) / 3200), 1.6) * 850 * (0.8 + 0.4 * N.fbm(x / 900, z / 900, 2));   // mont
+          const coast = -5600 + 500 * Math.sin(x / 2700) + N.fbm(x / 1500, 7.1, 3) * 300 + 2600 * Math.exp(-x * x / (2 * 2600 * 2600));   // baie au centre
+          h = lerp(h, -30, smoothstep(coast + 250, coast - 600, z));                                                            // mer au sud
+          return lerp(-8, h, smoothstep(70, 210, polyD(this.river, x, z)));                                                    // fleuve
+        }
+      },
+      // ── Fjords : plateau rocheux entaillé de bras de mer aux parois de 900 m, villes sur les deltas, pistes à sens unique
+      fjords: {
+        name: 'Fjords', world: 10000, seed: 97, haze: 0xbfd0de, palette: 'alpine', clouds: [900, 1700], trees: 1, treeline: 700, snow: 1150, fields: 0.3,
+        desc: "Plateau rocheux entaillé de fjords profonds : approches sinueuses entre des falaises, villes au bout des fjords, porte-avions au large.",
+        airports: [
+          { id: 'BRG', name: 'Bergvik', x: -2380, z: 1390, h: -1.107, y: 3 },
+          { id: 'NFJ', name: 'Nordfjord', x: 530, z: 5780, h: -0.528, y: 3 },
+          { id: 'SFJ', name: 'Sørfjord', x: -1570, z: -4295, h: -1.18, y: 3 },
+          { id: 'HOY', name: 'Høyfjell', x: -4600, z: -800, h: 0.4, y: 'auto' },
+          { id: 'PA1', name: 'Porte-avions Albatros', x: 8600, z: 2400, h: 0, carrier: true },
+        ],
+        lakes: [{ x: -5600, z: 4200, r: 300 }],
+        fjords: [
+          { w: 520, pts: [[10500, -800], [5200, -400], [2600, 600], [-200, 300], [-2600, 1500]] },
+          { w: 380, pts: [[2600, 600], [1800, 3600], [400, 6000]] },
+          { w: 450, pts: [[10500, -5200], [4800, -4600], [1600, -5600], [-1800, -4200]] },
+          { w: 300, pts: [[5200, -400], [3800, -2600]] },
+        ],
+        heads: [[-2600, 1500], [400, 6000], [-1800, -4200]],
+        cities: [{ name: 'Bergvik', kind: 'town', x: -2750, z: 2150, r: 480, y: 4, fill: true }, { name: 'Nordvik', kind: 'village', x: 950, z: 6200, r: 320, y: 4, fill: true },
+          { name: 'Sørby', kind: 'village', x: -2100, z: -3500, r: 300, y: 4, fill: true }, { name: 'Fjellby', kind: 'village', x: -4100, z: 300, r: 300 },
+          { name: 'Havn', kind: 'town', x: 5600, z: -2300, r: 420, y: 4, fill: true }],
+        relief(x, z, N) {
+          let h = 560 + Math.pow(N.ridge(x / 3000, z / 3000, 5), 1.5) * 950 + N.fbm(x / 800, z / 800, 3) * 50;
+          const coast = 6300 + N.fbm(z / 2400, 3.3, 3) * 700;
+          h = lerp(h, -60, smoothstep(coast - 900, coast + 700, x));                                     // océan à l'ouest
+          for (const f of this.fjords) {                                                                 // bras de mer en U
+            const d = polyD(f.pts, x, z) * (1 + N.fbm(x / 1300, z / 1300, 2) * 0.25);
+            if (d < f.w * 2.4) h = lerp(-70, h, smoothstep(f.w * 0.55, f.w * 2.3, d));
+          }
+          for (const [hx, hz] of this.heads) { const d = Math.hypot(x - hx, z - hz); if (d < 1300) h = lerp(3, h, smoothstep(650, 1300, d)); }   // deltas
+          return h;
+        }
+      },
     };
     // Cartes classées de la plus facile à la plus difficile (relief, distances, altitude des terrains, densité de l'air)
-    const MAP_ORDER = ['vallee', 'archipel', 'canyon', 'alpes'];
+    const MAP_ORDER = ['fleuve', 'vallee', 'metro', 'archipel', 'canyon', 'fjords', 'alpes'];
     const MAP_DIFF = {
+      fleuve: { lvl: 1, note: 'plaine dégagée, terrains proches, villes et fleuve comme repères visuels' },
+      metro: { lvl: 2, note: "approches au-dessus d'une grande ville et de ses tours, collines au nord" },
+      fjords: { lvl: 4, note: 'approches en virage entre des falaises de 900 m, pistes à sens unique au fond des fjords' },
       vallee: { lvl: 1, note: 'relief doux, 7 aérodromes proches au niveau de la mer, porte-avions' },
       archipel: { lvl: 2, note: "terrains courts sur des îles éloignées, peu d'endroits où se poser hors piste" },
       canyon: { lvl: 3, note: 'plateau à 400 m (air moins porteur), mesas et gorges à suivre en rase-mottes' },
@@ -1883,6 +2087,9 @@
     };
     const DIFF_NAMES = ['', 'Facile', 'Moyen', 'Difficile', 'Expert'], DIFF_COLS = ['', '#5bf08a', '#5ad1ff', '#ffb547', '#ff4d4d'];
 
+    // Distance d'un point à une polyligne [[x, z], …] (fleuves, fjords)
+    const _pd = [0, 0];
+    function polyD(pts, x, z) { let b = 1e9; for (let i = 1; i < pts.length; i++) b = Math.min(b, segDist(x, z, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], _pd)[0]); return b; }
     function segDist(px, pz, ax, az, bx, bz, out) {
       const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
       let t = L2 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -1912,6 +2119,11 @@
         y: a.carrier ? DECK_Y : (a.y === 'auto' ? Math.max(0, Math.round(nat(a.x, a.z))) : a.y)
       }));
       const lakes = (map.lakes || []).map(l => Object.assign({}, l, { y: l.y == null ? Math.max(0, Math.round(nat(l.x, l.z))) : l.y }));
+      // Ville sans altitude imposée : celle d'un aérodrome voisin (sols aplanis au même niveau), sinon le relief au centre
+      const cities = (map.cities || []).map(c => {
+        const near = c.y == null && aps.find(a => !a.carrier && Math.hypot(a.x - c.x, a.z - c.z) < c.r + 1700);
+        return Object.assign({}, c, { y: c.y ?? (near ? near.y : Math.max(1, Math.round(nat(c.x, c.z)))) });
+      });
       const flat = aps.filter(a => !a.carrier).map(a => ({ a, c: Math.cos(a.h), s: Math.sin(a.h) }));
       const ships = aps.filter(a => a.carrier), road = map.road;
       const AX0 = -140 - cell, AX1 = 90 + cell, AZ = RUNWAY_LEN / 2 + 340 + cell, BL = 650;
@@ -1924,6 +2136,10 @@
           const d = Math.hypot(Math.max(Math.abs(x - road.x) - 40 - cell, 0), Math.max(Math.abs(z) - road.len / 2 - 80, 0));
           if (d < 350) h = lerp(0, h, smoothstep(0, 350, d));
         }
+        for (const c of cities) {
+          const d = Math.hypot(x - c.x, z - c.z) - c.r - 40 - cell;
+          if (d < 500 && (c.fill || h > SEA - 1)) h = lerp(c.y, h, smoothstep(0, 500, d));
+        }
         for (const { a, c, s } of flat) {
           const dx = x - a.x, dz = z - a.z, lx = dx * c - dz * s, lz = dx * s + dz * c;
           const d = Math.hypot(Math.max(AX0 - lx, 0, lx - AX1), Math.max(Math.abs(lz) - AZ, 0));
@@ -1932,7 +2148,7 @@
         for (const a of ships) { const d = Math.hypot(x - a.x, z - a.z); if (d < 1300) h = Math.min(h, lerp(-40, h, smoothstep(500, 1300, d))); }
         H[j * n1 + i] = h;
       }
-      return { E, N, cell, H, aps, lakes, noise: NZ };
+      return { E, N, cell, H, aps, lakes, cities, noise: NZ };
     }
 
     const TER = { E: 1, N: 1, cell: 1, H: new Float32Array(4) };
@@ -1965,15 +2181,25 @@
         get ok() { return ok; }
       };
     })();
+    // Réglages manette / inclinaison : sensibilité par axe (×), zone morte et progressivité (0–1), sensibilité de l'inclinaison (×)
+    const CTL_DEF = { p: 1, r: 1, y: 1, dead: 0.12, expo: 0, tilt: 1 };
+    const CTL_LIM = { p: [0.3, 2], r: [0.3, 2], y: [0.3, 2], dead: [0, 0.3], expo: [0, 1], tilt: [0.5, 2] };
+    function ctlSettings(o) {
+      const c = { ...CTL_DEF };
+      if (o && typeof o === 'object') for (const k in CTL_DEF) if (Number.isFinite(o[k])) c[k] = Math.min(CTL_LIM[k][1], Math.max(CTL_LIM[k][0], o[k]));
+      return c;
+    }
     const DB = (() => {
       const d = Store.load() || {};
       const settings = Object.assign({ invert: false, sound: true, ac: 'sirocco', gfx: 'auto', dynRes: true, map: 'vallee' }, d.settings);
       settings.wx = Object.assign({ preset: 'brise', from: 270, base: 5, gust: 0.25, turb: 0.2 }, settings.wx);
+      settings.ctl = ctlSettings(settings.ctl);
       if (!AIRCRAFT[settings.ac]) settings.ac = 'sirocco';
       return { flights: Array.isArray(d.flights) ? d.flights : [], best: Object.assign({ maxAlt: 0, maxSpeed: 0, longest: 0, softest: null }, d.best), settings };
     })();
     const persist = () => Store.save(DB);
     const WX = DB.settings.wx;
+    const CTL = DB.settings.ctl;
     let AC = AIRCRAFT[DB.settings.ac];
 
     // ════════════════════════ Profil graphique : détection du GPU, niveaux de qualité ════════════════════════
@@ -1983,10 +2209,10 @@
     // fog = visibilité (m), terrN = cellules de la grille de relief par côté, cmap = texture couleur du sol (px),
     // tex = résolution des textures procédurales, treeDen = arbres / km², treeMax = plafond d'arbres par carte.
     const GFX_TIERS = {
-      low:    { label: 'Bas',   pr: 1,    prMin: 0.5,  aa: false, shadows: false, shadowSize: 512,  soft: false, box: 60,  aniso: 2,  fog: 2800, terrN: 160, cmap: 1024, tex: 1, treeDen: 22, treeMax: 9000,  fields: 60,  clouds: 45,  puffs: 250 },
-      medium: { label: 'Moyen', pr: 1.25, prMin: 0.6,  aa: true,  shadows: true,  shadowSize: 1024, soft: false, box: 60,  aniso: 4,  fog: 3400, terrN: 224, cmap: 1024, tex: 1, treeDen: 40, treeMax: 20000, fields: 100, clouds: 70,  puffs: 450 },
-      high:   { label: 'Élevé', pr: 2,    prMin: 0.75, aa: true,  shadows: true,  shadowSize: 2048, soft: true,  box: 60,  aniso: 8,  fog: 4200, terrN: 288, cmap: 2048, tex: 2, treeDen: 70, treeMax: 40000, fields: 120, clouds: 100, puffs: 700 },
-      ultra:  { label: 'Ultra', pr: 2.5,  prMin: 1,    aa: true,  shadows: true,  shadowSize: 4096, soft: true,  box: 100, aniso: 16, fog: 5200, terrN: 352, cmap: 2048, tex: 2, treeDen: 110, treeMax: 70000, fields: 160, clouds: 150, puffs: 900 }
+      low:    { label: 'Bas',   pr: 1,    prMin: 0.5,  aa: false, shadows: false, shadowSize: 512,  soft: false, box: 60,  aniso: 2,  fog: 2800, terrN: 160, cmap: 1024, tex: 1, treeDen: 22, treeMax: 9000,  fields: 60,  clouds: 45,  puffs: 250, city: 0.45 },
+      medium: { label: 'Moyen', pr: 1.25, prMin: 0.6,  aa: true,  shadows: true,  shadowSize: 1024, soft: false, box: 60,  aniso: 4,  fog: 3400, terrN: 224, cmap: 1024, tex: 1, treeDen: 40, treeMax: 20000, fields: 100, clouds: 70,  puffs: 450, city: 0.7 },
+      high:   { label: 'Élevé', pr: 2,    prMin: 0.75, aa: true,  shadows: true,  shadowSize: 2048, soft: true,  box: 60,  aniso: 8,  fog: 4200, terrN: 288, cmap: 2048, tex: 2, treeDen: 70, treeMax: 40000, fields: 120, clouds: 100, puffs: 700, city: 1 },
+      ultra:  { label: 'Ultra', pr: 2.5,  prMin: 1,    aa: true,  shadows: true,  shadowSize: 4096, soft: true,  box: 100, aniso: 16, fog: 5200, terrN: 352, cmap: 2048, tex: 2, treeDen: 110, treeMax: 70000, fields: 160, clouds: 150, puffs: 900, city: 1 }
     };
     const GFX_ORDER = ['low', 'medium', 'high', 'ultra'];
     function classifyGPU(name, o = {}) {
@@ -2279,7 +2505,8 @@
       scene.add(sunDisc);
     }
 
-    function blockedForScenery(x, z, margin) {
+    function blockedForScenery(x, z, margin, noCities) {
+      if (!noCities && CITIES.some(c => Math.hypot(c.x - x, c.z - z) < c.r + 30 + margin)) return true;
       for (const ap of AIRPORTS) {
         if (ap.carrier) continue;
         const p = toLocal(ap, x, z); if (p.lx > -115 - margin && p.lx < 70 + margin && Math.abs(p.lz) < RUNWAY_LEN / 2 + 300 + margin) return true;
@@ -2405,6 +2632,21 @@
         g.fillStyle = 'rgba(0,0,0,.08)'; for (let s = -w / 2; s < w / 2; s += 2.2) g.fillRect(s, -l / 2, 0.9, l);
         g.restore(); done++;
       }
+      // Routes (sur la terre ferme) et emprise des villes
+      const px = v => (v + E) / k;
+      g.lineCap = 'round';
+      for (const [ax, az, bx, bz, w] of ROADS) {
+        const L = Math.hypot(bx - ax, bz - az), n = Math.max(2, Math.ceil(L / 60));
+        g.strokeStyle = 'rgba(74,76,80,.92)'; g.lineWidth = Math.max(1.3, (w > 1 ? 20 : 12) / k);
+        g.beginPath(); let on = false;
+        for (let i = 0; i <= n; i++) {
+          const x = ax + (bx - ax) * i / n, z = az + (bz - az) * i / n;
+          if (terrainHeight(x, z) < SEA + 0.5) { on = false; continue; }
+          if (on) g.lineTo(px(x), px(z)); else { g.moveTo(px(x), px(z)); on = true; }
+        }
+        g.stroke();
+      }
+      for (const cy of CITIES) { g.fillStyle = 'rgba(150,148,142,.55)'; g.beginPath(); g.arc(px(cy.x), px(cy.z), (cy.r + 20) / k, 0, Math.PI * 2); g.fill(); }
       const t = new THREE.CanvasTexture(c); t.anisotropy = maxAniso;
       return t;
     }
@@ -2542,6 +2784,243 @@
       }
     }
 
+    // ════════════════════════ Villes : damier de rues, tours au centre, immeubles, pavillons, parcs ════════════════════════
+    // Chaque ville de MAP.cities est aplanie par genHeights (sauf l'eau : fleuves et baies restent), puis buildCities y pose
+    // les bâtiments lot par lot : densité et hauteur décroissent du centre vers la périphérie, lots en pente ou dans l'eau
+    // laissés vides, hauteurs plafonnées sous les trouées d'approche des pistes (obstacleCap). Les emprises servent aux collisions.
+    const CITY_KIND = {
+      metro: { block: 110, street: 18, label: 'Métropole' },
+      city: { block: 96, street: 15, label: 'Ville' },
+      town: { block: 80, street: 12, label: 'Bourg' },
+      village: { block: 64, street: 10, label: 'Village' },
+    };
+    const BLD = { cell: 64, map: new Map(), n: 0 };          // emprises des bâtiments (boîtes orientées) par case de 64 m
+    const strHash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+    function addFootprint(x, z, ca, sa, hw, hd, top) {
+      const b = { x, z, ca, sa, hw, hd, top }, r = Math.hypot(hw, hd), C = BLD.cell;
+      for (let j = Math.floor((z - r) / C); j <= Math.floor((z + r) / C); j++) for (let i = Math.floor((x - r) / C); i <= Math.floor((x + r) / C); i++) {
+        const k = i + ',' + j; let a = BLD.map.get(k); if (!a) BLD.map.set(k, a = []); a.push(b);
+      }
+      BLD.n++;
+    }
+    // Bâtiment touché par le point (x, y, z) élargi de pad mètres (null sinon)
+    function buildingAt(x, y, z, pad = 0) {
+      if (!BLD.n) return null;
+      const a = BLD.map.get(Math.floor(x / BLD.cell) + ',' + Math.floor(z / BLD.cell)); if (!a) return null;
+      for (const b of a) {
+        if (y > b.top + pad * 0.4) continue;
+        const dx = x - b.x, dz = z - b.z, u = dx * b.ca - dz * b.sa, v = dx * b.sa + dz * b.ca;
+        if (Math.abs(u) < b.hw + pad && Math.abs(v) < b.hd + pad) return b;
+      }
+      return null;
+    }
+    // Hauteur maximale d'un bâtiment posé au sol gy en (x, z) : trouées d'approche (pente 2°, s'évasant de 15 %)
+    // dans l'axe de chaque piste jusqu'à 6 km, et bandes latérales le long des pistes
+    function obstacleCap(x, z, gy) {
+      let cap = 1e9;
+      for (const ap of AIRPORTS) {
+        const p = toLocal(ap, x, z), L2 = ap.carrier ? CV.L / 2 : RUNWAY_LEN / 2, d = Math.abs(p.lz) - L2;
+        if (d > 6000) continue;
+        if (Math.abs(p.lx) < 160 + Math.max(0, d) * 0.15) cap = Math.min(cap, ap.y + Math.max(0, d) * 0.035 - gy);
+        else if (d < 0 && Math.abs(p.lx) < 500) cap = Math.min(cap, ap.y + (Math.abs(p.lx) - 160) * 0.14 - gy);
+      }
+      return cap;
+    }
+    // Façades : une travée × un étage par motif, répété à l'échelle réelle du bâtiment (shader), toit uni
+    function facadeMat(tex, tw, th, roof) {
+      const m = new THREE.MeshLambertMaterial({ map: tex });
+      m.onBeforeCompile = sh => {
+        sh.vertexShader = 'varying float vRoof;\n' + sh.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>
+          #ifdef USE_INSTANCING
+            vec3 bsc = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+          #else
+            vec3 bsc = vec3(1.0);
+          #endif
+          vRoof = step(0.5, abs(normal.y));
+          vUv = uv * (abs(normal.x) > 0.5 ? vec2(bsc.z, bsc.y) : vec2(bsc.x, bsc.y)) / vec2(${tw.toFixed(2)}, ${th.toFixed(2)});`);
+        sh.fragmentShader = 'varying float vRoof;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${roof}), vRoof);`);
+      };
+      return m;
+    }
+    function cityMats() {
+      if (MAT.bldgOffice) return;
+      const office = canvasTex(64, (g, s) => {
+        g.fillStyle = '#8f9aa6'; g.fillRect(0, 0, s, s);
+        const gr = g.createLinearGradient(0, 0, s, s); gr.addColorStop(0, '#9fc0d8'); gr.addColorStop(0.5, '#4d6f8c'); gr.addColorStop(1, '#2d4660');
+        g.fillStyle = gr; g.fillRect(4, 4, s - 8, s - 16);
+        g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(4, 4, (s - 8) * 0.35, s - 16);
+        g.fillStyle = '#6c7884'; g.fillRect(0, s - 12, s, 12);
+      });
+      const flat = canvasTex(64, (g, s) => {
+        g.fillStyle = '#f2ede4'; g.fillRect(0, 0, s, s);
+        g.fillStyle = 'rgba(0,0,0,.06)'; for (let i = 0; i < 40; i++) g.fillRect(Math.random() * s, Math.random() * s, 2, 2);
+        g.fillStyle = '#d9d2c4'; g.fillRect(14, 16, 36, 34);
+        const gr = g.createLinearGradient(0, 18, 0, 48); gr.addColorStop(0, '#5f7a90'); gr.addColorStop(1, '#253341');
+        g.fillStyle = gr; g.fillRect(17, 19, 30, 28);
+        g.fillStyle = '#e8e2d6'; g.fillRect(31, 19, 2, 28); g.fillRect(17, 31, 30, 2);
+      });
+      MAT.bldgOffice = facadeMat(office, 3.4, 3.9, '0.33, 0.35, 0.38');
+      MAT.bldgFlat = facadeMat(flat, 3.6, 3.0, '0.42, 0.41, 0.40');
+      MAT.roof = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      MAT.park = new THREE.MeshLambertMaterial({ color: 0x6f9a52, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      MAT.parkTree = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, flatShading: true });
+      for (const [kind, K] of Object.entries(CITY_KIND)) {
+        // Un îlot par motif : chaussée et marquage au bord, trottoir, cœur d'îlot (cours, parkings)
+        const t = canvasTex(128, (g, s) => {
+          const st = K.street / K.block * s / 2, sw = st + 3.5 / K.block * s;
+          g.fillStyle = '#5b5e63'; g.fillRect(0, 0, s, s);
+          g.fillStyle = '#a9a69e'; g.fillRect(st, st, s - 2 * st, s - 2 * st);
+          g.fillStyle = '#8f8c86'; g.fillRect(sw, sw, s - 2 * sw, s - 2 * sw);
+          g.fillStyle = 'rgba(0,0,0,.08)'; for (let i = 0; i < 60; i++) g.fillRect(sw + Math.random() * (s - 2 * sw), sw + Math.random() * (s - 2 * sw), 4, 2);
+          g.strokeStyle = 'rgba(240,236,220,.55)'; g.lineWidth = 1; g.setLineDash([5, 5]);
+          g.beginPath(); g.moveTo(0, 0.5); g.lineTo(s, 0.5); g.moveTo(0.5, 0); g.lineTo(0.5, s); g.stroke();
+        });
+        MAT['cg_' + kind] = new THREE.MeshLambertMaterial({ map: t, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      }
+      GEO.bldg = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+      const P = [[-.5, 0, -.5], [.5, 0, -.5], [0, 1, -.5], [-.5, 0, .5], [.5, 0, .5], [0, 1, .5]];   // toit à deux pans, faîtage selon z
+      const tri = [0, 2, 1, 3, 4, 5, 0, 3, 5, 0, 5, 2, 1, 2, 5, 1, 5, 4], pos = [];
+      for (const i of tri) pos.push(...P[i]);
+      GEO.roof = new THREE.BufferGeometry(); GEO.roof.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); GEO.roof.computeVertexNormals();
+      const tr = [colorize(new THREE.CylinderGeometry(0.25, 0.35, 2.4, 5).translate(0, 1.2, 0), 0x6b4a2e), colorize(new THREE.IcosahedronGeometry(2.4, 0).translate(0, 4, 0), 0x4e8a3c)];
+      GEO.parkTree = (BGU && BGU.mergeBufferGeometries(tr.map(g => g.toNonIndexed()))) || tr[1];
+    }
+    // Lots d'un îlot : sol plat et sec, hors aérodromes et lacs
+    function lotOK(c, x, z, r) {
+      for (const [dx, dz] of [[0, 0], [r, r], [-r, r], [r, -r], [-r, -r]]) {
+        const h = terrainHeight(x + dx, z + dz); if (h < SEA + 0.5 || Math.abs(h - c.y) > 0.7) return false;
+      }
+      return !blockedForScenery(x, z, r * 0.6, true);
+    }
+    function buildCities() {
+      BLD.map.clear(); BLD.n = 0;
+      if (!CITIES.length) return;
+      cityMats();
+      for (const c of CITIES) buildCity(c);
+    }
+    function buildCity(c) {
+      const K = CITY_KIND[c.kind] || CITY_KIND.town, R = mulberry32(strHash(c.name) + MAP.seed), B = K.block, inner = B - K.street;
+      const ang = c.angle ?? R() * Math.PI / 2, ca = Math.cos(ang), sa = Math.sin(ang), dens = GFX.city;
+      const W = (u, v) => [c.x + u * ca + v * sa, c.z - u * sa + v * ca];
+      const L = { office: [], flat: [], roof: [], park: [], tree: [], lights: [], ground: [] };
+      let maxH = 10;
+      // Bâtiment : (u, v) centre dans la grille, w × d emprise, h hauteur ; plafonné sous les trouées d'approche
+      const put = (cls, u, v, w, d, h, col, roof) => {
+        const [x, z] = W(u, v);
+        h = Math.min(h, obstacleCap(x, z, c.y) - (roof || 0));
+        if (h < 3) return false;
+        L[cls].push([x, z, w, d, h, col]);
+        if (roof) L.roof.push([x, z, w * 1.08, d * 1.08, roof, col, h]);
+        addFootprint(x, z, ca, sa, w / 2, d / 2, c.y + h + (roof || 0));
+        if (h > 110) L.lights.push(x, c.y + h + 1.5, z);
+        maxH = Math.max(maxH, h + (roof || 0));
+        return true;
+      };
+      const OFFICE = ['#cfe0ee', '#b7d3d6', '#d8d8d8', '#a9bed6', '#e2d8c8'], FLAT = ['#f2ede4', '#e9dcc4', '#d9d5cf', '#f0e2c8', '#e6cfc0', '#ccd3d8'];
+      const ROOF = ['#a8513a', '#9a4632', '#5a5f68', '#6e5040', '#b86a48'];
+      const pick = a => a[Math.floor(R() * a.length)];
+      const n = Math.ceil(c.r / B) + 1;
+      let landmark = c.kind === 'metro' || c.kind === 'village';
+      // Îlots du plus central au plus excentré (le premier îlot valide reçoit le monument : tour, église)
+      const blocks = [];
+      for (let j = -n; j < n; j++) for (let i = -n; i < n; i++) blocks.push([(i + 0.5) * B, (j + 0.5) * B]);
+      blocks.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]));
+      for (const [uc, vc] of blocks) {
+        const t = Math.hypot(uc, vc) / c.r * (1 + (R() - 0.5) * 0.22);              // bord de ville irrégulier
+        if (t > 1) continue;
+        const [bx, bz] = W(uc, vc), hc = terrainHeight(bx, bz);
+        if (hc < SEA + 0.5 || Math.abs(hc - c.y) > 0.7 || blockedForScenery(bx, bz, 0, true)) continue;
+        L.ground.push(uc, vc);                                                        // îlot sur la terre ferme : rues
+        if (!lotOK(c, bx, bz, inner * 0.45)) continue;
+        if (landmark) {
+          landmark = false;
+          if (c.kind === 'metro') { put('office', uc, vc, inner * 0.55, inner * 0.55, 240 + R() * 50, '#cfe3f2'); continue; }
+          put('flat', uc - 6, vc, 11, 26, 10, '#e8dcc6', 6); put('flat', uc - 6, vc + 15, 6, 6, 27, '#e8dcc6', 6);   // église : nef et clocher
+          continue;
+        }
+        if (R() < (c.kind === 'village' ? 0.04 : 0.07) && t > 0.15) {                // parc arboré
+          L.park.push([bx, bz, inner * 0.9]);
+          for (let k = 0; k < 9; k++) { const [x, z] = W(uc + (R() - 0.5) * inner * 0.8, vc + (R() - 0.5) * inner * 0.8); L.tree.push([x, z, 0.8 + R() * 0.6, R() * 6.28]); }
+          continue;
+        }
+        // Zonage selon la distance au centre et la taille de la ville
+        const zone = c.kind === 'metro' ? (t < 0.2 ? 'tower' : t < 0.45 ? 'office' : t < 0.7 ? 'mid' : 'house')
+          : c.kind === 'city' ? (t < 0.22 ? 'office' : t < 0.55 ? 'mid' : 'house')
+            : c.kind === 'town' ? (t < 0.3 ? 'mid' : 'house') : 'house';
+        const k = zone === 'tower' ? 1 : zone === 'office' || zone === 'mid' ? 2 : 3, lot = inner / k;
+        for (let a = 0; a < k; a++) for (let b = 0; b < k; b++) {
+          const u = uc - inner / 2 + (a + 0.5) * lot, v = vc - inner / 2 + (b + 0.5) * lot;
+          if (zone === 'house') {
+            if (R() > dens * (c.kind === 'village' ? 0.45 : 0.95)) continue;
+            const w = 8 + R() * 4, d = 9 + R() * 4;
+            put('flat', u + (R() - 0.5) * (lot - w) * 0.6, v + (R() - 0.5) * (lot - d) * 0.6, w, d, 3.2 + R() * 3.2, pick(FLAT), 2 + R() * 1.4);
+          } else if (zone === 'mid') {
+            if (R() > 0.4 + dens * 0.6) continue;
+            const f = 0.62 + R() * 0.25;
+            put('flat', u, v, lot * f, lot * (0.62 + R() * 0.25), (c.kind === 'town' ? 7 : 10) + R() * (c.kind === 'town' ? 9 : 20), pick(FLAT));
+          } else if (zone === 'office') {
+            const f = 0.6 + R() * 0.25;
+            put(R() < 0.7 ? 'office' : 'flat', u, v, lot * f, lot * (0.6 + R() * 0.25), (c.kind === 'metro' ? 28 : 22) + R() * (c.kind === 'metro' ? 55 : 40), pick(OFFICE));
+          } else {
+            const f = 0.55 + R() * 0.25, h = 70 + R() * 130 * (1 - t / 0.2 * 0.6);
+            put('office', u, v, lot * f, lot * (0.55 + R() * 0.25), h, pick(OFFICE));
+            if (R() < 0.5) put('office', u + lot * 0.32, v - lot * 0.3, lot * 0.28, lot * 0.28, h * (0.35 + R() * 0.3), pick(OFFICE));
+          }
+        }
+      }
+      // ── Maillages : sol des rues (disque, motif = un îlot), parcs, bâtiments instanciés, arbres, feux d'obstacle
+      const sphere = new THREE.Sphere(new THREE.Vector3(c.x, c.y + maxH / 2, c.z), Math.hypot(c.r + 60, maxH / 2));
+      if (L.ground.length) {   // un quad par îlot (motif = un îlot, rues sur les bords) : rien sur l'eau des fleuves et des baies
+        const p = [], uv = [];
+        for (let i = 0; i < L.ground.length; i += 2) {
+          const u0 = L.ground[i] - B / 2, v0 = L.ground[i + 1] - B / 2;
+          for (const [a, b] of [[0, 0], [0, 1], [1, 0], [1, 0], [0, 1], [1, 1]]) { const [x, z] = W(u0 + a * B, v0 + b * B); p.push(x, c.y + 0.06, z); uv.push(u0 / B + a, v0 / B + b); }
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        const nr = new Float32Array(p.length); for (let i = 1; i < nr.length; i += 3) nr[i] = 1; g.setAttribute('normal', new THREE.BufferAttribute(nr, 3));
+        g.computeBoundingSphere();
+        const gm = new THREE.Mesh(g, MAT['cg_' + (CITY_KIND[c.kind] ? c.kind : 'town')]); gm.receiveShadow = true; worldGroup.add(gm);
+      }
+      if (L.park.length) {
+        const p = [];
+        for (const [x, z, s] of L.park) {
+          const h = s / 2, C = [[-h, -h], [-h, h], [h, -h], [h, -h], [-h, h], [h, h]];
+          for (const [u, v] of C) p.push(x + u * ca + v * sa, c.y + 0.1, z - u * sa + v * ca);
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.computeVertexNormals();
+        const m = new THREE.Mesh(g, MAT.park); m.receiveShadow = true; worldGroup.add(m);
+      }
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromAxisAngle(WORLD_UP, ang), qd = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), col = new THREE.Color();
+      const inst = (geo, mat, list, fill) => {
+        if (!list.length) return;
+        const im = new THREE.InstancedMesh(geo.clone(), mat, list.length);
+        list.forEach((e, i) => { fill(e); im.setMatrixAt(i, m4); if (e[5]) im.setColorAt(i, col.set(e[5])); });
+        im.geometry.boundingSphere = sphere.clone();
+        im.castShadow = im.receiveShadow = true; im.instanceMatrix.needsUpdate = true; worldGroup.add(im);
+      };
+      inst(GEO.bldg, MAT.bldgOffice, L.office, e => m4.compose(pv.set(e[0], c.y, e[1]), q, sv.set(e[2], e[4], e[3])));
+      inst(GEO.bldg, MAT.bldgFlat, L.flat, e => m4.compose(pv.set(e[0], c.y, e[1]), q, sv.set(e[2], e[4], e[3])));
+      const roofs = L.roof.map(e => [e[0], e[1], e[2], e[3], e[4], pick(ROOF), e[6]]);
+      inst(GEO.roof, MAT.roof, roofs, e => m4.compose(pv.set(e[0], c.y + e[6], e[1]), q, sv.set(e[2], e[4], e[3])));
+      inst(GEO.parkTree, MAT.parkTree, L.tree, e => m4.compose(pv.set(e[0], c.y, e[1]), qd.setFromAxisAngle(WORLD_UP, e[3]), sv.setScalar(e[2])));
+      if (L.lights.length) aidPoints(worldGroup, L.lights, MAT.aidPts, 0xff2a1a);
+      c.count = L.office.length + L.flat.length;
+    }
+    // Routes entre villes et aérodromes : chaque ville rejoint l'aérodrome et la ville les plus proches
+    function cityRoads() {
+      const out = [], seen = new Set(), aps = AIRPORTS.filter(a => !a.carrier);
+      const link = (a, b) => { const k = [a.name || a.id, b.name || b.id].sort().join('|'); if (seen.has(k)) return; seen.add(k); out.push([a.x, a.z, b.x, b.z, a.kind === 'metro' || b.kind === 'metro' ? 2 : 1]); };
+      for (const c of CITIES) {
+        const ap = aps.slice().sort((p, q) => Math.hypot(p.x - c.x, p.z - c.z) - Math.hypot(q.x - c.x, q.z - c.z))[0];
+        if (ap) link(c, ap);
+        const o = CITIES.filter(d => d !== c).sort((p, q) => Math.hypot(p.x - c.x, p.z - c.z) - Math.hypot(q.x - c.x, q.z - c.z));
+        if (o[0]) link(c, o[0]);
+        if (c.kind === 'metro' && o[1]) link(c, o[1]);
+      }
+      return out;
+    }
+
     function createClouds() {
       // Chaque nuage = ses boules fusionnées en une seule géométrie (1 draw call par nuage au lieu de 5 à 8).
       // Nombre fixe : les nuages sont recyclés autour de l'avion (updateClouds), la couche suit la carte (MAP.clouds).
@@ -2632,13 +3111,17 @@
       Object.assign(TER, { E: g.E, N: g.N, cell: g.cell, H: g.H, noise: g.noise });
       AIRPORTS.length = 0; AIRPORTS.push(...g.aps);
       LAKES.length = 0; LAKES.push(...g.lakes);
+      CITIES.length = 0; CITIES.push(...g.cities);
+      ROADS.length = 0;
       CARRIERS.length = 0; CARRIERS.push(...AIRPORTS.filter(a => a.carrier));
       prepareGrids();
+      ROADS.push(...cityRoads());
       if (worldGroup) { scene.remove(worldGroup); disposeWorld(worldGroup); }
       worldGroup = new THREE.Group(); scene.add(worldGroup);
       socks.length = 0; AIDS.length = 0; ILS.ap = null;
       buildTerrain(); buildWater(); buildLakes(); buildFields(); buildTrees();
       AIRPORTS.forEach(a => a.carrier ? buildCarrier(a) : buildAirport(a));
+      buildCities();
       if (MAP.road) createRoad();
       truck.visible = !!MAP.road;
       if (MAP.road) { truckState.dir = 1; truck.position.set(ROAD_X - 3.5, 0, -RUNWAY_LEN / 2 + 60); }
@@ -3871,6 +4354,7 @@
         plane.position.y += (S.va.y + S.wAir) * dt;
         plane.position.z += (S.va.z + windNow.z) * dt;
         if (S.speed > AC.vne + 18) return crash('Rupture structurelle : vitesse maximale dépassée');
+        if (BLD.n && buildingAt(plane.position.x, plane.position.y - 1, plane.position.z, Math.min(5, AC.look.span * 0.25))) return crash('Collision avec un bâtiment');
         const sfc = surfaceAt(plane.position.x, plane.position.z);
         if (plane.position.y <= sfc.y + GEAR) {
           if (sfc.water) return crash(sfc.lake ? 'Amerrissage dans le lac : avion perdu' : "Amerrissage : l'avion a coulé");
@@ -3931,6 +4415,8 @@
       const na = nearestAirport(px, pz), agl = plane.position.y - GEAR - ground;
       S.terrainWarn = !S.onGround && agl < 90 && S.vs < -3 && Math.hypot(na.x - px, na.z - pz) > 1100;
       S.gearWarn = !S.onGround && AC.retract && S.gearPos < 0.98 && agl < 120 && S.vs < -1 && S.speed < AC.vr * 1.5;
+      S.obstWarn = false;                                                // bâtiment sur la trajectoire dans les 5 s
+      if (BLD.n && !S.onGround) for (let t = 1; t <= 5 && !S.obstWarn; t++) S.obstWarn = !!buildingAt(px + S.vel.x * t, plane.position.y + S.vel.y * t, pz + S.vel.z * t, 12);
 
       if (S.onGround && Math.abs(S.roll) < 2) {
         const ap = airportAt(px, pz);
@@ -4388,6 +4874,15 @@
         g.fillStyle = 'rgba(15,20,26,.75)'; g.fillText('▲ ' + Math.round(p.h), x + 1, y + 1);
         g.fillStyle = '#f4f6f8'; g.fillText('▲ ' + Math.round(p.h), x, y);
       }
+      g.strokeStyle = 'rgba(70,72,78,.9)'; g.lineWidth = Math.max(1.5, 12 * k);
+      for (const [ax, az, bx, bz] of ROADS) { const [x1, y1] = P(ax, az), [x2, y2] = P(bx, bz); ln(g, x1, y1, x2, y2); }
+      for (const c of CITIES) {
+        const [x, y] = P(c.x, c.z);
+        g.fillStyle = 'rgba(160,156,148,.55)'; g.beginPath(); g.arc(x, y, Math.max(4, c.r * k), 0, Math.PI * 2); g.fill();
+        g.font = "italic 700 12px 'Rajdhani', sans-serif"; g.fillStyle = 'rgba(15,20,26,.8)'; g.fillText(c.name, x + 1, y + 1);
+        g.fillStyle = '#fff4dc'; g.fillText(c.name, x, y);
+      }
+      g.font = "600 10px 'JetBrains Mono', monospace";
       g.strokeStyle = '#3d3f44'; g.lineWidth = Math.max(2, 14 * k);
       if (ROAD_LEN) { const [a, b] = P(ROAD_X, -ROAD_LEN / 2), [c, d] = P(ROAD_X, ROAD_LEN / 2); ln(g, a, b, c, d); }
       for (const ap of AIRPORTS) {
@@ -4512,6 +5007,7 @@
         if (!S.onGround) {
           if (S.stallWarn) A.push(['DÉCROCHAGE', 'warn']);
           if (S.terrainWarn) A.push(['TERRAIN · REMONTEZ', 'warn']);
+          if (S.obstWarn) A.push(['OBSTACLE · REMONTEZ', 'warn']);
           if (S.gearWarn) A.push(['TRAIN NON SORTI', 'warn']);
           if (S.speed > AC.vne) A.push(['SURVITESSE', 'warn']);
           if (AC.retract && S.gearPos > 0.02 && S.speed > AC.vle) A.push(['VITESSE TRAIN', 'caution']);
@@ -4545,7 +5041,7 @@
       setTimeout(() => d.classList.add('out'), 3400); setTimeout(() => d.remove(), 3900);
     }
     const anyModal = () => !!document.querySelector('.modal.open');
-    function refreshPause() { S.paused = S.userPaused || anyModal() || portraitBlocked(); for (const k in keys) keys[k] = false; }
+    function refreshPause() { S.paused = S.userPaused || S.adPaused || anyModal() || portraitBlocked(); for (const k in keys) keys[k] = false; }
     function closeAllModals() {
       document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open'));
       if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -4555,7 +5051,7 @@
       closeAllModals(); $(id).classList.add('open'); refreshPause();
       if (id === 'mapModal') requestAnimationFrame(() => { resizeMap(); renderPlan(); });
       if (id === 'recModal') renderRecords();
-      if (id === 'acModal') { renderAircraft(); renderWeather(); renderGfx(); }
+      if (id === 'acModal') { renderAircraft(); renderWeather(); renderGfx(); renderCtl(); }
     }
     function toggleModal(id) { if ($(id).classList.contains('open')) closeAllModals(); else openModal(id); }
     function showDialog(title, html, buttons, cls = '') {
@@ -4614,6 +5110,39 @@
         + row('Ombres · MSAA', `${GFX.shadows ? GFX.shadowSize + ' px' : 'non'} · ${GFX.aa ? 'oui' : 'non'}`)
         + row('Résolution', `${Math.round(DYN.pr * 100)} %${DYN.fps ? ' · ' + Math.round(DYN.fps) + ' i/s' : ''}`);
     }
+    // Réglages manette : curseurs en %, courbe de réponse et position des sticks en direct (redessinée par pollGamepad)
+    const CTL_UI = { open: false, cv: null };
+    const CTL_AXES = [['p', 'Tangage', '#5ad1ff'], ['r', 'Roulis', '#ffb547'], ['y', 'Palonnier', '#ff5ad8']];
+    function renderCtl() {
+      document.querySelectorAll('[data-ctl]').forEach(i => {
+        const k = i.dataset.ctl; i.value = Math.round(CTL[k] * 100); setText('ctlV_' + k, Math.round(CTL[k] * 100) + ' %');
+      });
+      const w = Math.min(300, $('ctlBox').clientWidth || 300);
+      if (!CTL_UI.cv || CTL_UI.cv.W !== w) CTL_UI.cv = setupCanvas($('ctlCurve'), w, 120);
+      CTL_UI.open = true; drawCtlCurve();
+    }
+    function drawCtlCurve() {
+      if (!$('acModal').classList.contains('open')) { CTL_UI.open = false; return; }
+      const { g, W, H } = CTL_UI.cv, m = 8, sx = v => m + (v + 1) / 2 * (W - 2 * m), sy = v => H / 2 - v * (H / 2 - m);
+      g.clearRect(0, 0, W, H);
+      g.fillStyle = 'rgba(255,255,255,.05)'; g.fillRect(sx(-CTL.dead), m, sx(CTL.dead) - sx(-CTL.dead), H - 2 * m);   // zone morte
+      g.strokeStyle = 'rgba(138,160,182,.35)'; g.lineWidth = 1;
+      ln(g, sx(-1), sy(0), sx(1), sy(0)); ln(g, sx(0), sy(-1), sx(0), sy(1));
+      g.setLineDash([3, 3]); ln(g, sx(-1), sy(-1), sx(1), sy(1)); g.setLineDash([]);   // réponse linéaire de référence
+      CTL_AXES.forEach(([k, , col], j) => {
+        g.strokeStyle = col; g.lineWidth = 1.6; g.beginPath();
+        for (let i = 0; i <= 80; i++) { const v = -1 + i / 40, x = sx(v), y = sy(stickCurve(v, CTL[k])) + (j - 1) * 0.8; i ? g.lineTo(x, y) : g.moveTo(x, y); }
+        g.stroke();
+        if (PAD.raw) { g.fillStyle = col; g.beginPath(); g.arc(sx(clamp(PAD.raw[j], -1, 1)), sy(stickCurve(PAD.raw[j], CTL[k])), 4, 0, Math.PI * 2); g.fill(); }
+      });
+      g.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+      CTL_AXES.forEach(([, name, col], j) => { g.fillStyle = col; g.fillText(name, m + 2, m + 9 + j * 12); });
+      g.fillStyle = '#8aa0b6'; g.textAlign = 'right'; g.fillText('entrée →', W - m, H - m - 2); g.fillText('↑ commande', W - m, m + 9); g.textAlign = 'left';
+      const pad = PAD.raw ? '🎮 ' + (PAD.id || '').replace(/\s*\(.*$/, '').slice(0, 30) : 'Aucune manette détectée : bougez un stick ou appuyez sur un bouton.';
+      if (CTL_UI.pad !== pad) { CTL_UI.pad = pad; setText('ctlPad', pad); }
+    }
+    function setCtl(k, v) { CTL[k] = clamp(v, CTL_LIM[k][0], CTL_LIM[k][1]); persist(); renderCtl(); }
+
     function setWx(changes, preset = 'perso') { Object.assign(WX, changes); WX.preset = preset; persist(); renderWeather(); }
 
     // Listes Départ / Destination et sélecteur de carte (reconstruits à chaque chargement de carte)
@@ -4716,6 +5245,8 @@
       $('wxGust').oninput = e => setWx({ gust: +e.target.value / 100 });
       $('wxTurb').oninput = e => setWx({ turb: +e.target.value / 100 });
       $('gfxTiers').onclick = e => { const k = e.target.dataset.gfx; if (k) setGfx(k); };
+      $('ctlBox').oninput = e => { const k = e.target.dataset.ctl; if (k) setCtl(k, +e.target.value / 100); };
+      $('ctlReset').onclick = () => { Object.assign(CTL, CTL_DEF); persist(); renderCtl(); toast('Réglages manette par défaut', 'info'); };
       $('gfxDyn').onchange = e => {
         DB.settings.dynRes = e.target.checked; persist();
         if (!DB.settings.dynRes) { DYN.pr = DYN.target; renderer.setPixelRatio(DYN.pr); }
@@ -5132,6 +5663,12 @@
     const PAD_TAP = { 1: 'g', 2: 'v', 3: 'c', 4: 'b', 8: 'm', 9: 'Escape', 14: 'x', 15: 'Tab' };   // appui → touche
     addEventListener('gamepadconnected', e => toast(`🎮 Manette connectée : ${e.gamepad.id.replace(/\s*\(.*$/, '').slice(0, 40)}`, 'ok'));
     addEventListener('gamepaddisconnected', () => { PAD.on = false; toast('Manette déconnectée', 'caution'); });
+    // Courbe d'un axe : zone morte → progressivité (part de x³ : plus fin au centre) → sensibilité, bornée à ±1.
+    // Sensibilité > 1 : plein débattement avant la butée du stick ; < 1 : débattement maximal réduit.
+    function stickCurve(v, sens) {
+      const x = deadzone(v, CTL.dead, 0.95);
+      return clamp(((1 - CTL.expo) * x + CTL.expo * x * x * x) * sens, -1, 1);
+    }
     function padKey(key) {                                                             // simule une touche pour les deux écouteurs (moteur + combat)
       dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
       dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
@@ -5139,11 +5676,17 @@
     function pollGamepad() {
       const list = navigator.getGamepads ? navigator.getGamepads() : [];
       let gp = null; for (const p of list) if (p && p.connected && p.axes.length >= 2) { gp = p; break; }
-      if (!gp) { if (PAD.on) { PAD.on = false; PAD.p = PAD.r = PAD.y = PAD.thr = 0; for (const k in PAD.held) keys[k] = false; PAD.held = {}; } return; }
-      PAD.on = true;
-      const ax = i => deadzone(gp.axes[i] || 0, 0.12, 0.95), bt = i => gp.buttons[i] ? gp.buttons[i].value || (gp.buttons[i].pressed ? 1 : 0) : 0;
+      if (!gp) {
+        if (PAD.raw) { PAD.raw = null; if (CTL_UI.open) drawCtlCurve(); }
+        if (PAD.on) { PAD.on = false; PAD.p = PAD.r = PAD.y = PAD.thr = 0; for (const k in PAD.held) keys[k] = false; PAD.held = {}; }
+        return;
+      }
+      PAD.on = true; PAD.id = gp.id;
+      PAD.raw = [gp.axes[1] || 0, gp.axes[0] || 0, -(gp.axes[2] || 0)];             // tangage, roulis, palonnier (bruts)
+      const bt = i => gp.buttons[i] ? gp.buttons[i].value || (gp.buttons[i].pressed ? 1 : 0) : 0;
       const free = !anyModal() && !RP.active;
-      PAD.r = free ? ax(0) : 0; PAD.p = free ? ax(1) : 0; PAD.y = free ? -ax(2) : 0;
+      PAD.p = free ? stickCurve(PAD.raw[0], CTL.p) : 0; PAD.r = free ? stickCurve(PAD.raw[1], CTL.r) : 0; PAD.y = free ? stickCurve(PAD.raw[2], CTL.y) : 0;
+      if (CTL_UI.open) drawCtlCurve();
       PAD.thr = free ? bt(7) - bt(6) : 0;
       const hold = { ...PAD_HOLD };
       if (free) for (const [b, k] of Object.entries(hold)) {
@@ -5177,8 +5720,8 @@
       TILT.rawR = Math.atan2(-sx, Math.hypot(sy, uz));   // tourner comme un volant : + = à droite
       TILT.rawP = Math.atan2(uz, sy);                    // 0 = écran vertical, 90° = à plat
       if (TILT.p0 == null) TILT.p0 = TILT.rawP;
-      TILT.r = deadzone(TILT.rawR, 3 * DEG, 28 * DEG);
-      TILT.p = deadzone(TILT.p0 - TILT.rawP, 3 * DEG, 22 * DEG);   // haut de l'écran vers soi = cabrer
+      TILT.r = deadzone(TILT.rawR, 3 * DEG, 28 * DEG / CTL.tilt);   // sensibilité : plein débattement atteint plus tôt
+      TILT.p = deadzone(TILT.p0 - TILT.rawP, 3 * DEG, 22 * DEG / CTL.tilt);   // haut de l'écran vers soi = cabrer
     }
     function calibrateTilt() { TILT.p0 = null; toast('Inclinaison calibrée : position actuelle = neutre', 'info'); }
     async function toggleTilt() {
@@ -5279,7 +5822,7 @@
         if (!S.crashed && !S.onGround) {
           if (beepT <= 0) {
             if (S.stallWarn) { Snd.beep(620, 0.18); beepT = 0.45; }
-            else if (S.terrainWarn) { Snd.beep(440, 0.2); beepT = 0.6; }
+            else if (S.terrainWarn || S.obstWarn) { Snd.beep(440, 0.2); beepT = 0.6; }
           }
           if (S.gearWarn && hornT <= 0) { Snd.beep(330, 0.3, 0.06); hornT = 0.8; }
         }
@@ -8068,6 +8611,81 @@
       };
       document.querySelector('#help table').insertAdjacentHTML('beforeend', `<tr><td><kbd>J</kbd></td><td>Missions : école, transport, combat</td></tr>`);
       toast('Nouveau : école de pilotage, transport de fret et de passagers (J · Missions).', 'ok');
+    })();
+  </script>
+
+  <!-- ═══════════ EXTENSION PLATEFORME · publicité web (AdSense, H5 Games Ads) et passerelle de l'application mobile ═══════════ -->
+  <script>
+    (() => {
+      // Identifiant éditeur AdSense (« ca-pub-» + 16 chiffres, AdSense › Compte › Informations). Vide = aucune publicité.
+      const ADSENSE_CLIENT = '';
+      const MIN_PLAY = 150;                     // secondes de jeu (hors pause) avant une nouvelle pause publicitaire
+      const q = new URLSearchParams(location.search);
+      // Application mobile (react-native-webview) : l'appli définit window.SKYWAY_APP avant le chargement ; ?app=1 pour tester
+      const APP = window.SKYWAY_APP || (q.get('app') === '1' ? { platform: 'test' } : null);
+      const post = m => { try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(m)); } catch (e) { } };
+      const AD = { played: 0, ended: false, web: null, shown: 0 };
+      setInterval(() => { if (!S.paused && !RP.active) AD.played++; }, 1000);
+      const adPause = on => { S.adPaused = on; refreshPause(); };
+
+      // Web : API Ad Placement des H5 Games Ads. Pas de bannière sur le jeu : uniquement des interstitiels
+      // aux pauses naturelles (recommencer après un vol terminé, changement de carte), plafonnés par Google.
+      if (!APP && /^ca-pub-\d{16}$/.test(ADSENSE_CLIENT) && location.protocol === 'https:') {
+        window.adsbygoogle = window.adsbygoogle || [];
+        AD.web = o => window.adsbygoogle.push(o);           // adBreak() et adConfig() de Google
+        const s = document.createElement('script');
+        s.async = true; s.crossOrigin = 'anonymous';
+        s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + ADSENSE_CLIENT;
+        s.dataset.adClient = ADSENSE_CLIENT;
+        s.dataset.adFrequencyHint = '180s';
+        if (q.get('adtest') === '1') s.dataset.adbreakTest = 'on';   // ?adtest=1 : annonces de test
+        document.head.appendChild(s);
+        AD.web({ preloadAdBreaks: 'on', sound: 'on' });
+      }
+
+      function adBreak(name) {
+        if (AD.played < MIN_PLAY || RP.active) return false;
+        if (APP) { AD.played = 0; post({ type: 'adBreak', name }); return true; }   // l'appli affiche un interstitiel AdMob
+        if (!AD.web) return false;
+        AD.web({
+          type: 'next', name,
+          beforeAd: () => adPause(true),
+          afterAd: () => adPause(false),
+          adBreakDone: info => { if (S.adPaused) adPause(false); if (info && info.breakStatus === 'viewed') { AD.played = 0; AD.shown++; } }
+        });
+        return true;
+      }
+
+      // Pauses naturelles : recommencer après un crash ou un atterrissage, changer de carte
+      const _crash = crash;
+      crash = function (...a) { const was = S.crashed; const r = _crash.apply(this, a); if (!was && S.crashed) { AD.ended = true; post({ type: 'haptic', kind: 'crash' }); } return r; };
+      const _finish = finishLanding;
+      finishLanding = function (...a) { const r = _finish.apply(this, a); AD.ended = true; post({ type: 'haptic', kind: 'land' }); return r; };
+      const _reset = resetFlight;
+      resetFlight = function (...a) { if (AD.ended) { AD.ended = false; adBreak('recommencer'); } return _reset.apply(this, a); };
+      const _switch = switchMap;
+      switchMap = function (...a) { adBreak('carte'); return _switch.apply(this, a); };
+
+      if (APP) {
+        document.body.classList.add('app');
+        // Les liens externes (guide, confidentialité, GitHub) s'ouvrent dans le navigateur du téléphone (géré par l'appli)
+        document.addEventListener('visibilitychange', () => { if (document.hidden && !S.userPaused) { S.userPaused = true; refreshPause(); } });
+      }
+      window.SKYWAY_PLATFORM = {
+        app: APP, adBreak, _ad: AD,
+        back() { padKey('Escape'); },                                     // bouton retour Android = Échap
+        pause() { if (!S.userPaused) { S.userPaused = true; refreshPause(); } },
+        adShowing(on) { adPause(!!on); },                                 // interstitiel natif ouvert / fermé
+        privacyLink(on) {                                                 // lien « Choix publicitaires » (consentement AdMob)
+          let a = $('adChoices');
+          if (on && !a) {
+            a = document.createElement('a'); a.id = 'adChoices'; a.href = '#'; a.textContent = 'Choix publicitaires';
+            a.onclick = e => { e.preventDefault(); post({ type: 'privacyOptions' }); };
+            const p = document.querySelector('#help .sitelinks'); p.append(' · ', a);
+          }
+        }
+      };
+      post({ type: 'ready', version: 1 });
     })();
   </script>
 </body>

@@ -1,0 +1,6 @@
+# Only read by crawlers when served at the domain root (custom domain or a w2001-rf.github.io user site).
+# On a GitHub Pages project site, submit sitemap.xml in Google Search Console instead.
+User-agent: *
+Allow: /
+
+Sitemap: https://w2001-rf.github.io/skyway-3D-simulator/sitemap.xml

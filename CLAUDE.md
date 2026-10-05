@@ -4,11 +4,12 @@
 Single-page browser flight simulator, French UI ("SKYWAY · Simulateur de vol").
 It started as a 3D truck/car scene and grew into:
 - Civil flight sim: 5 civil aircraft (including the Mistral airliner) + 4 military (including the Condor bomber), wind, gear, flaps, reverse thrust, navigation and flight planning, ILS / PAPI / meatball, radar and map, records.
-- 4 procedural maps (18–22 km play areas plus 6 km of surrounding terrain), sorted from easiest to hardest and switchable in the M window. An aircraft carrier (catapult, arresting wires) sits on Vallée and Archipel.
+- 7 procedural maps (18–22 km play areas plus 6 km of surrounding terrain), sorted from easiest to hardest and switchable in the M window. Procedural cities (street grids, towers, houses, parks, roads) on every map; a coastal metropolis, a river plain and fjords among them. An aircraft carrier (catapult, arresting wires) sits on Vallée, Archipel and Fjords.
 - Missions hub (J): pilot school (7 guided lessons), civil transport contracts (freight and passengers), combat campaign.
 - Keyboard, touch/tilt and gamepad controls.
 - Combat campaign: 9 missions in two series (air superiority, ground attack), enemy AI, guns/missiles/bombs/flares, scoring and stars.
 - Online mode (U): one peer-to-peer session of up to 8 pilots, with no game server (WebRTC; discovery through public WebTorrent trackers).
+- Hosted on GitHub Pages (`https://w2001-rf.github.io/skyway-3D-simulator/`) with SEO pages (guide, privacy), Google AdSense ad breaks, and an Expo / React Native app in `mobile/` that wraps the hosted game (see §9d).
 
 Constraints the user set:
 - Single HTML file, no downloaded assets.
@@ -17,17 +18,26 @@ Constraints the user set:
 - Other external resources:
   - Google Fonts (JetBrains Mono, Rajdhani), with fallbacks.
   - Trystero (`@trystero-p2p/torrent@0.25.4`, ESM from jsDelivr), loaded with a dynamic `import()` only when the player first clicks « Rejoindre » in the online window.
+  - Google AdSense (`pagead2.googlesyndication.com/pagead/js/adsbygoogle.js`), injected only when `ADSENSE_CLIENT` is set, over HTTPS, and never inside the mobile app (§9d).
   - Two official three.js r128 example scripts from jsDelivr (`three@0.128.0/examples/js/…`, same version as the core): `utils/BufferGeometryUtils.js` (merges aircraft parts per material) and `geometries/RoundedBoxGeometry.js`. The code checks `THREE.BufferGeometryUtils` / `THREE.RoundedBoxGeometry` and falls back to unmerged meshes / plain boxes when they fail to load.
 
 ## 2. File layout (current state)
-One file: `index.html`.
+The game is one file: `index.html`.
 1. `<style>` + DOM: HUD panels, modals, toasts.
 2. `<script>` **main engine**: world, physics, UI, navigation, records, wind, gear, aircraft types.
 3. **Combat extension**, pasted before `</body>`: `<style>`, extra DOM, `<script>` IIFE.
    - It extends `AIRCRAFT` and **wraps global functions** (see §9).
    - Must load AFTER the main script.
 4. **Online extension**: `<style>`, `#olModal`, `<script>` IIFE (see §9b). It loads after the combat extension and wraps the already-wrapped functions.
-5. **School & transport extension**, last before `</body>`: `<style>`, `#msModal`, `#tutPanel`, `#ctPanel`, `<script>` IIFE (see §9c). It uses `window.SKYWAY_COMBAT` (API exported by the combat extension) and wraps on top of everything else.
+5. **School & transport extension**: `<style>`, `#msModal`, `#tutPanel`, `#ctPanel`, `<script>` IIFE (see §9c). It uses `window.SKYWAY_COMBAT` (API exported by the combat extension).
+6. **Platform extension**, last before `</body>`: `<script>` IIFE for web ads and the mobile-app bridge (see §9d). It wraps on top of everything else.
+
+Site files next to `index.html` (static, served by GitHub Pages; the game never loads them at runtime):
+- `guide.html` (French player guide: features, aircraft, maps, controls, ILS/PAPI, missions, FAQ with `FAQPage` JSON-LD, two AdSense display slots) and `privacy.html` (privacy policy required by AdSense, AdMob and the app stores).
+- `favicon.svg`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `manifest.webmanifest` (installable PWA, landscape, fullscreen).
+- `og-image.png` (1200×630 share image: Métropole skyline + title), `hero.png` (same shot without text, guide header).
+- `sitemap.xml`, `robots.txt`.
+- `mobile/`: Expo SDK 57 app (see §9d and `mobile/README.md`).
 
 ## 3. Conventions (critical, easy to break)
 **Axes and headings**
@@ -60,8 +70,8 @@ One file: `index.html`.
 - Runways 800 × 30 m.
 
 **Maps (`MAPS`, `MAP_ORDER`, `MAP_DIFF`)**
-- `MAP_ORDER` = easiest → hardest: vallee (Facile), archipel (Moyen), canyon (Difficile), alpes (Expert). `MAP_DIFF[id] = {lvl, note}`, `DIFF_NAMES`, `DIFF_COLS`; the map picker shows ●○ dots and the note is prepended to `#mapDesc`.
-- Each map = `{name, desc, world, seed, haze, palette, clouds[lo,hi], trees, treeline, snow, fields, airports[], lakes[], road?, corridors?, relief(x,z,N)}`.
+- `MAP_ORDER` = easiest → hardest: fleuve, vallee (Facile), metro, archipel (Moyen), canyon (Difficile), fjords, alpes (Expert). `MAP_DIFF[id] = {lvl, note}`, `DIFF_NAMES`, `DIFF_COLS`; the map picker shows ●○ dots and the note is prepended to `#mapDesc`.
+- Each map = `{name, desc, world, seed, haze, palette, clouds[lo,hi], trees, treeline, snow, fields, airports[], lakes[], cities[]?, road?, corridors?, river?, fjords?, heads?, relief(x,z,N)}`. `relief` is called as a method (`this` = the map), so it can read its own `river` / `fjords` polylines (`polyD(pts, x, z)` = distance to a polyline).
 - `WORLD` (play area ±world), `ROAD_X`, `ROAD_LEN` (0 = no road) are `let`s set by `loadMap`.
 - `AIRPORTS`, `LAKES`, `CARRIERS` are `const` arrays refilled in place by `loadMap`. Never reassign them.
 
@@ -71,8 +81,12 @@ One file: `index.html`.
   | alpes | Hautes-Alpes | 10000 | ridged peaks to ~3100 m, flat-floored valleys (`corridors`), glacier altiport GLA ~1700 m | — |
   | archipel | Archipel | 11000 | ocean with islands (`islands`), 1150 m volcano with a crater | PA1 at (0, −6200) |
   | canyon | Canyons | 10000 | 380 m plateau, terraced mesas, gorges with rivers below sea level | — |
+  | fleuve | Plaine du Fleuve | 9000 | farmland plain at ~20 m, meandering river (`rz(x)` sine), gentle hills north and south; Fleuveville straddles the river | — |
+  | metro | Métropole | 10000 | bay to the south, river polyline (`river`) through Grand-Lumière (metro, towers to ~290 m), hills and an 850 m mountain to the north-west | — |
+  | fjords | Fjords | 10000 | 560–1500 m plateau cut by U-shaped sea channels (`fjords` polylines, walls ~900 m), deltas at 3 m at the fjord heads (`heads`), ocean to the west; one-way runways at the heads, straight-in approaches cut by the walls | PA1 at (8600, 2400), heading 0 |
 
 - Airport `y`: a number, or `'auto'` = natural relief at the center (rounded, ≥ 0). Carrier entries have `carrier: true` and `y = DECK_Y`.
+- City entry: `{name, kind: 'metro'|'city'|'town'|'village', x, z, r, y?, angle?, fill?}`. Without `y`, a city takes the height of an airport within `r + 1700` m (so both flattened areas match), else the rounded relief at its centre (≥ 1).
 - `?map=<id>` overrides `DB.settings.map`. Combat levels always run on `vallee`.
 
 **Terrain (`genHeights`, `TER`)**
@@ -81,6 +95,7 @@ One file: `index.html`.
 - `genHeights` then flattens:
   - lakes to `l.y`;
   - the road to 0;
+  - each city disc (r + 40 m + one cell) to `c.y`, blending over 500 m, but only where the relief is above `SEA − 1`: rivers and bays stay water inside cities (quays), unless `fill: true` (fjord towns cut a terrace into the walls);
   - each airport rectangle (local lx −140…90, |lz| ≤ 740, plus one cell) to `ap.y`, blending over 650 m;
   - the sea under each carrier to at least −40 m.
 - Grid: `GFX.terrN` cells per side over ±`TER.E` (`E = world + MARGIN`). Cells are about 100 m on Élevé.
@@ -104,6 +119,14 @@ One file: `index.html`.
   - Leaf colors come from `setColorAt`.
   - Count = `GFX.treeDen` per km² × `MAP.trees`, capped by `GFX.treeMax`, accepted with probability `FO^1.6`.
 - Airports: `buildAirport(ap)` (group at `ap.y`, windsock at `ap.y`, a PAPI at each end). Desert maps use `MAT.clearingSand`. Carriers use `buildCarrier(ap)` (with a meatball).
+- Cities (`CITIES`, `buildCities` → `buildCity(c)`, after the airports so `obstacleCap` sees them):
+  - Square blocks of `CITY_KIND[kind].block` m (metro 110, city 96, town 80, village 64) on a grid rotated by `c.angle`, visited from the centre outward. A block gets street ground only if its centre is dry and flat at `c.y`; buildings only if `lotOK` (5 points flat, dry, not `blockedForScenery`).
+  - Zoning by distance ratio t: metro towers (t < 0.2, 70–200 m, first block = a 240–290 m landmark), offices (< 0.45), mid-rise (< 0.7), houses; city/town/village scale down; villages get a church. 7 % of blocks are parks (green quad + trees). Suburb density = `GFX.city` (0.45 Bas … 1 Élevé/Ultra), villages ×0.45.
+  - `obstacleCap(x, z, gy)` caps every building under a 2° approach surface (widening 15 %) out to 6 km from each runway end, and under a lateral slope beside the runways; buildings that would be under 3 m are skipped. Approaches stay at least ~50 m above roofs.
+  - Rendering per city: one `InstancedMesh` each for office facades (`MAT.bldgOffice`), other facades (`MAT.bldgFlat`), roof prisms (`GEO.roof`, `MAT.roof`) and park trees, plus one merged mesh for the street blocks (`MAT.cg_<kind>`, one block per texture tile) and one for parks; hand-set bounding sphere for culling; red obstruction lights (`aidPoints`) on buildings over 110 m.
+  - Facade shader (`facadeMat`): the UVs are rescaled by the instance scale, so one texture tile = one bay × one floor at any building size; top faces get a flat roof colour. Per-instance colours tint the facades.
+  - Collisions: `addFootprint` stores oriented boxes in `BLD.map` (64 m cells); `buildingAt(x, y, z, pad)` returns the box hit.
+  - `ROADS` (`cityRoads()`): each city links to its nearest airport and nearest city (metro: two cities). Painted on the ground colour map (skipped over water) and drawn with the city names on the M map.
 - `buildMapImage`: 720 px map image (relief colors × hillshade + contour lines every 100 m, darker every 500 m) and `PEAKS` (local maxima ≥ 150 m, at least 1.8 km apart).
 - Everything goes in `worldGroup`. `disposeWorld` frees the per-map geometry, materials and textures, but keeps `MAT`, `GEO`, `TEX` and `numberMats`.
 - Haze color (`MAP.haze`) drives fog, background and sky horizon.
@@ -171,6 +194,7 @@ One file: `index.html`.
 - Bad attitude.
 - Terrain collision: touchdown on slope > 0.2, or more than 2.5 m below the surface (also the carrier hull). Island hit (`carrierHit`). Touchdown or rolling into water / a lake.
 - Speed > `vne + 18`.
+- Building hit (`buildingAt` with a pad of a quarter span, max 5 m): « Collision avec un bâtiment ». `S.obstWarn` checks the velocity vector 1–5 s ahead (pad 12 m) → « OBSTACLE · REMONTEZ » alert with the terrain beep.
 
 **Landing grade:** uses `|vs| + 0.35·|lateral|`. Under 1 = Parfait, under 2.5 = Bon, under 4.5 = Ferme, otherwise Dur.
 
@@ -263,6 +287,10 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
   - Held buttons set `keys` (`PAD_HOLD`): A brakes, RB gun, R3 rear view.
   - Tapped buttons dispatch synthetic keydown/keyup (`PAD_TAP`, `padKey`), so both listeners react: B gear, X missile, Y camera, LB flares, Select map, Start pause/Esc, D-pad ← reverse, → next target. D-pad ↑ ↓ change the radar range.
   - Only Select and Start work while a modal or a replay is open.
+- **Stick tuning** (T window, « Manette & inclinaison »; `CTL` = `DB.settings.ctl`, sanitised by `ctlSettings` with `CTL_DEF` / `CTL_LIM`):
+  - `stickCurve(v, sens)`: dead zone `CTL.dead` (0–30 %, default 12 %, full at 0.95) → expo `(1 − e)·x + e·x³` (`CTL.expo`, default 0 = linear) → × per-axis sensitivity `CTL.p / r / y` (30–200 %), clamped to ±1. Defaults reproduce the old linear response.
+  - Tilt: `CTL.tilt` (50–200 %) divides the full-deflection angles (28° roll, 22° pitch).
+  - `PAD.raw` = raw [pitch, roll, yaw] axes; while the T window is open, `pollGamepad` redraws `#ctlCurve` (`drawCtlCurve`: curves per axis, dead-zone band, live stick dots). « Par défaut » restores `CTL_DEF`.
 
 ## 8. Main engine: key state and functions
 **State objects**
@@ -319,7 +347,7 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
   - Intel UHD/Iris, Radeon integrated, recent mobile → medium.
   - GeForce / Radeon RX / Apple M → high.
   - RTX x060+ / RX x700+ / M Max → ultra.
-- `GFX_TIERS[tier]` = `{pr, prMin, aa, shadows, shadowSize, soft, box, aniso, fog, terrN, cmap, tex, treeDen, treeMax, fields, clouds, puffs}`.
+- `GFX_TIERS[tier]` = `{pr, prMin, aa, shadows, shadowSize, soft, box, aniso, fog, terrN, cmap, tex, treeDen, treeMax, fields, clouds, puffs, city}`.
   - Fog far = `GFX.fog` (2800–5200 m), camera far = fog + 1500.
   - `terrN` = terrain grid resolution (160–352). `cmap` = ground color texture (1024/2048).
   - The physics uses the same grid, so terrain detail depends on the tier. `GFX` is the resolved tier, available as a global (the combat extension reads `GFX.puffs`).
@@ -356,7 +384,7 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 DB = {
   flights[],
   best{maxAlt, maxSpeed, longest, softest},
-  settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}},
+  settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}, ctl{p, r, y, dead, expo, tilt}},
   combat{unlocked, unlockedSol, best{levelId: {score, stars, time, ac}}, ac, start('base'|'carrier')},
   school{done{lessonId: {date, time}}},
   career{money, contracts, pax, kg, failed}
@@ -467,6 +495,30 @@ DB = {
 
 **Missions hub** (`#msModal`, `window.SKYWAY_MISSIONS = {open(tab), toggle, startLesson, stopLesson, acceptOffer, refreshOffers, cancelContract, offers, tut, ct, LESSONS}`): tabs École / Transport / Combat. Combat opens `#cbModal`, which gets the same tab bar. `renderRecords` is wrapped to add transport totals and school progress.
 
+## 9d. Platform extension: web ads, SEO, mobile app (last IIFE)
+**SEO (in `<head>` / top of `<body>`)**: descriptive `<title>` and meta description, canonical URL, Open Graph and Twitter cards (`og-image.png`), `VideoGame` JSON-LD, icons and manifest, preconnects to the CDNs, a visually hidden `<h1>` (`.sr-only`), a `<noscript>` block, and « Guide du pilote · Confidentialité » links in the help panel (`.sitelinks`). The absolute URLs (`https://w2001-rf.github.io/skyway-3D-simulator/`) are repeated in `index.html`, `guide.html`, `privacy.html`, `sitemap.xml`, `robots.txt` and `mobile/src/config.ts`: change them all together for a custom domain.
+
+**Web ads (AdSense H5 Games Ads, Ad Placement API)**
+- `ADSENSE_CLIENT` (`ca-pub-` + 16 digits) at the top of the IIFE; empty = no ad script at all. Same ID in `guide.html` (`ADSENSE_CLIENT`, `ADSENSE_SLOTS`).
+- No banner over the game: only interstitial `adBreak({type: 'next'})` at natural breaks, through `adBreak(name)`:
+  - `resetFlight` after a flight ended (`AD.ended`, set by the wrapped `crash` and `finishLanding`), name « recommencer »;
+  - `switchMap`, name « carte ».
+- `adBreak` does nothing until `AD.played` ≥ `MIN_PLAY` (150 s counted while `!S.paused`); Google adds its own frequency cap (`data-ad-frequency-hint` 180 s). `?adtest=1` sets `data-adbreak-test="on"`.
+- `beforeAd` / `afterAd` set `S.adPaused`, which `refreshPause` includes (so the sim and the engine sound pause during an ad).
+
+**Mobile app bridge**
+- `APP` = `window.SKYWAY_APP` (injected by the app before the page loads) or `?app=1` for desktop testing. In app mode: no AdSense, `body.app`, and the flight pauses when the page is hidden.
+- Page → app: `window.ReactNativeWebView.postMessage(JSON)` with `{type: 'ready'}`, `{type: 'adBreak', name}` (same rules as the web ad breaks; the app applies its own cap and shows an AdMob interstitial), `{type: 'haptic', kind: 'crash'|'land'}`, `{type: 'privacyOptions'}`.
+- App → page: `window.SKYWAY_PLATFORM = {app, adBreak, back(), pause(), adShowing(on), privacyLink(on), _ad}`. `back()` dispatches Escape through `padKey`; `privacyLink(true)` adds a « Choix publicitaires » link to the help panel when AdMob requires a way to reopen the consent form.
+
+**`mobile/` (Expo SDK 57, React Native 0.86, TypeScript)**
+- `App.tsx`: landscape lock, hidden status / navigation bars, splash held until `ready` (12 s fallback), `initAds()`.
+- `src/GameScreen.tsx`: full-screen `react-native-webview` on `GAME_URL`, message handling, Android back button, background pause, haptics (`expo-haptics`), keep-awake, links other than the game page opened with `Linking`, offline / error overlay with retry.
+- `src/ads.ts`: UMP consent (`AdsConsent.requestInfoUpdate` → `loadAndShowConsentFormIfRequired` → `canRequestAds`), then `mobileAds().initialize()` and a preloaded `InterstitialAd`. Cap: none in the first 3 min, 4 min between ads (`src/config.ts`).
+- `src/config.ts`: `GAME_URL`, production ad unit IDs (empty = Google test units, always test units in `__DEV__`). `app.json` holds the AdMob App IDs (currently Google's public test IDs), the bundle ID `io.github.w2001rf.skyway`, and the plugin config.
+- Tilt steering uses the page's own `deviceorientation` code inside the WebView (no native sensor bridge).
+- Native module ⇒ development build required (`npx expo run:android`, or EAS). `android/` and `ios/` are generated (Continuous Native Generation) and gitignored: configure through `app.json` only. Checks: `npx tsc --noEmit`, `npx expo lint`, `npx expo-doctor`, `npx expo export`.
+
 ## 10. Known caveats / gotchas
 - Terrain blocks many straight-in approaches (the survey probe measures clearance under a 3° path): on Vallée, VAL 36 is clear only within about 4.7 km (an 800 m ridge beyond), VAL 18 is cut by a 193 m hill at 2.8 km; LAC, NOR, SUD, EST and COT are clear from the south, CIM from the north; Hautes-Alpes has almost no clear straight-in approach. Place air-start lessons and scripted approaches inside the clear zone.
 - The main script resets `settings.ac` to 'sirocco' when the saved id is unknown, because jets are defined later. The extension restores the saved jet from `Store.load()`.
@@ -477,13 +529,19 @@ DB = {
 - New static scenery should respect the `GFX` budgets. Batch repeated small meshes with `instanced()` or per-tile instancing, because draw calls are the main cost. Typical frame: about 80 (Bas) / 160 (Élevé) / 230 (Ultra) draw calls.
 - Scenery must go in `worldGroup` (not `scene`), or it survives map changes and leaks.
 - `surfaceAt` and `deckAt` return shared objects (`SURF`, `DK`); copy the fields before calling them again.
-- Map generation is synchronous: ~70 ms for heights, plus the color map (~0.2 s at 1024 px, more at 2048). `switchMap` shows `#loading` first.
+- Map generation is synchronous: ~70 ms for heights, plus the color map (~0.2 s at 1024 px, more at 2048), plus the cities (the Métropole has ~10 000 buildings). In software rendering (SwiftShader) a full `loadMap` takes 0.75–1.5 s. `switchMap` shows `#loading` first.
+- City materials and geometries (`MAT.bldgOffice`, `MAT.bldgFlat`, `MAT.roof`, `MAT.park`, `MAT.parkTree`, `MAT.cg_*`, `GEO.bldg`, `GEO.roof`, `GEO.parkTree`) are created once by `cityMats()` and kept across maps; each city's instanced meshes use geometry clones (disposed with the map).
+- Enemy units, bullets and missiles ignore buildings (combat only runs on Vallée, whose towns are away from the mission areas).
 - Headless Edge does not run requestAnimationFrame. Test physics by calling `physicsStep(1/120)` in a loop.
 - `GFX`, `GPU` and `DB` are read before `init()`. `DYN` is declared next to `animate` and must exist before `init()` runs.
 - `center(e)` and the temp vectors are shared; clone them before storing.
 - Aircraft models are cached per type and cloned. Enemy wrecks clone their materials before darkening them; do the same for any per-instance material change.
 - Livery canvases are painted the first time a type is built (about 0.1–0.3 s per type at `GFX.tex = 2`). Enemy types are built when they first spawn.
 - The HTML contains a comment with the literal text `</body>` (before the combat extension). Test harnesses that inject scripts must insert before the LAST `</body>`.
+- GitHub Pages serves the game as a *project* site under `/skyway-3D-simulator/`. Crawlers only read `robots.txt` and AdSense only reads `ads.txt` at the domain root, so with the github.io URL submit `sitemap.xml` in Google Search Console, and use a custom domain (or a `w2001-rf.github.io` user-site repo) for `ads.txt`.
+- AdSense Auto ads must be disabled for the game page (AdSense › Ads › By site / URL exclusions), otherwise Google may overlay banners on the canvas. Only `guide.html` should use Auto ads.
+- AdSense is not allowed inside apps: the page skips it when `window.SKYWAY_APP` is set, and the app uses AdMob instead. Keep it that way.
+- Headless Edge enforces a minimum window width of about 500 px: phone-width screenshots are cropped, not reflowed. Measure layout with `innerWidth` / `scrollWidth` instead.
 
 ## 11. Suggested next steps for Claude Code
 1. Split into modules with Vite:

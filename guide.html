@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guide du pilote · SKYWAY, simulateur de vol 3D gratuit</title>
+  <meta name="description" content="Guide de SKYWAY, simulateur de vol 3D gratuit dans le navigateur : avions, cartes, commandes clavier, manette et mobile, décollage, atterrissage ILS, missions et multijoueur.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="theme-color" content="#0b1118">
+  <link rel="canonical" href="https://w2001-rf.github.io/skyway-3D-simulator/guide.html">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="SKYWAY">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:title" content="Guide du pilote · SKYWAY">
+  <meta property="og:description" content="Avions, cartes, commandes, atterrissage ILS, missions et multijoueur : tout pour bien débuter sur SKYWAY.">
+  <meta property="og:url" content="https://w2001-rf.github.io/skyway-3D-simulator/guide.html">
+  <meta property="og:image" content="https://w2001-rf.github.io/skyway-3D-simulator/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "SKYWAY", "item": "https://w2001-rf.github.io/skyway-3D-simulator/"},
+          {"@type": "ListItem", "position": 2, "name": "Guide du pilote", "item": "https://w2001-rf.github.io/skyway-3D-simulator/guide.html"}
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {"@type": "Question", "name": "SKYWAY est-il gratuit ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui. SKYWAY est entièrement gratuit, sans compte et sans achat intégré. Le site est financé par quelques publicités affichées entre deux vols, jamais pendant le pilotage."}},
+          {"@type": "Question", "name": "Faut-il installer quelque chose ?", "acceptedAnswer": {"@type": "Answer", "text": "Non. Le simulateur tourne dans un navigateur récent (Chrome, Edge, Firefox, Safari) grâce à WebGL. Il s'adapte automatiquement à la puissance de la carte graphique."}},
+          {"@type": "Question", "name": "Peut-on jouer avec une manette ou un joystick ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui. Toute manette Xbox, PlayStation ou compatible fonctionne. La sensibilité, la zone morte et la progressivité de chaque axe se règlent dans la fenêtre Avion & météo (touche T)."}},
+          {"@type": "Question", "name": "SKYWAY fonctionne-t-il sur téléphone et tablette ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui, en mode paysage, avec des boutons tactiles et un pilotage par inclinaison de l'appareil, comme un volant."}},
+          {"@type": "Question", "name": "Peut-on voler à plusieurs ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui. Le mode En ligne (touche U) réunit jusqu'à 8 pilotes dans une même session grâce à un code partagé, sans serveur de jeu : les navigateurs se connectent directement entre eux."}},
+          {"@type": "Question", "name": "Mes progrès sont-ils sauvegardés ?", "acceptedAnswer": {"@type": "Answer", "text": "Oui, automatiquement dans le navigateur : records, carnet de vol, trajets enregistrés, progression de l'école et de la campagne. Ils peuvent être exportés en fichier JSON depuis la fenêtre Records (L)."}}
+        ]
+      }
+    ]
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #0b1118;
+      --panel: #111a24;
+      --line: rgba(120, 200, 255, .16);
+      --txt: #e6eef7;
+      --mute: #8aa0b6;
+      --cyan: #5ad1ff;
+      --green: #5bf08a;
+      --amber: #ffb547;
+      --red: #ff4d4d;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--txt);
+      font: 17px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif
+    }
+
+    a {
+      color: var(--cyan)
+    }
+
+    header.top {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px;
+      background: rgba(11, 17, 24, .92);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px)
+    }
+
+    .brand {
+      font: 700 24px 'Rajdhani', sans-serif;
+      letter-spacing: .06em;
+      color: var(--txt);
+      text-decoration: none
+    }
+
+    .brand b {
+      color: var(--cyan)
+    }
+
+    .play {
+      display: inline-block;
+      padding: 9px 18px;
+      border-radius: 8px;
+      background: var(--cyan);
+      color: #04121c;
+      font: 700 17px 'Rajdhani', sans-serif;
+      letter-spacing: .04em;
+      text-decoration: none
+    }
+
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 16px 48px
+    }
+
+    .hero {
+      margin: 0 -16px;
+      padding: 56px 16px 40px;
+      background: linear-gradient(180deg, rgba(11, 17, 24, .15), var(--bg)), url(hero.png) center/cover
+    }
+
+    h1 {
+      font: 700 clamp(32px, 6vw, 52px)/1.05 'Rajdhani', sans-serif;
+      margin: 0 0 14px;
+      text-shadow: 0 2px 16px rgba(0, 0, 0, .6)
+    }
+
+    .hero p {
+      max-width: 620px;
+      font-size: 19px;
+      text-shadow: 0 1px 10px rgba(0, 0, 0, .7)
+    }
+
+    h2 {
+      font: 700 30px 'Rajdhani', sans-serif;
+      margin: 44px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--line)
+    }
+
+    h3 {
+      font: 700 21px 'Rajdhani', sans-serif;
+      margin: 24px 0 6px
+    }
+
+    nav.toc {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 18px;
+      margin-top: 24px
+    }
+
+    nav.toc ol {
+      margin: 4px 0;
+      padding-left: 20px;
+      columns: 2;
+      column-gap: 28px
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 16px
+    }
+
+    .card h3 {
+      margin-top: 0
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--mute)
+    }
+
+    .tw {
+      overflow-x: auto
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 15px
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top
+    }
+
+    th {
+      color: var(--mute);
+      font-weight: 600
+    }
+
+    kbd {
+      display: inline-block;
+      min-width: 22px;
+      padding: 0 6px;
+      border: 1px solid rgba(120, 200, 255, .32);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, .05);
+      font: 600 13px/22px ui-monospace, Consolas, monospace;
+      text-align: center
+    }
+
+    .dots {
+      letter-spacing: -1px;
+      white-space: nowrap
+    }
+
+    .ad {
+      margin: 32px 0;
+      min-height: 100px
+    }
+
+    .ad:empty {
+      display: none
+    }
+
+    details {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 16px;
+      margin: 8px 0
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 600
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 20px 16px;
+      text-align: center;
+      color: var(--mute);
+      font-size: 15px
+    }
+
+    @media (max-width: 560px) {
+      nav.toc ol {
+        columns: 1
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header class="top">
+    <a class="brand" href="./">SKY<b>WAY</b></a>
+    <a class="play" href="./">▶ Jouer gratuitement</a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Guide du pilote SKYWAY</h1>
+      <p>SKYWAY est un simulateur de vol 3D gratuit qui fonctionne directement dans le navigateur, sur ordinateur,
+        tablette et téléphone. Ce guide présente les avions, les cartes, les commandes et les missions pour bien
+        débuter.</p>
+      <a class="play" href="./">▶ Lancer le simulateur</a>
+    </section>
+
+    <nav class="toc" aria-label="Sommaire">
+      <strong>Sommaire</strong>
+      <ol>
+        <li><a href="#fonctionnalites">Fonctionnalités</a></li>
+        <li><a href="#avions">Les avions</a></li>
+        <li><a href="#cartes">Les cartes</a></li>
+        <li><a href="#commandes">Commandes</a></li>
+        <li><a href="#premier-vol">Premier vol</a></li>
+        <li><a href="#atterrissage">Atterrir avec l'ILS et le PAPI</a></li>
+        <li><a href="#missions">Missions et école</a></li>
+        <li><a href="#multijoueur">Multijoueur</a></li>
+        <li><a href="#faq">Questions fréquentes</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="fonctionnalites">Fonctionnalités</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Physique de vol réaliste</h3>
+        <p>Portance, décrochage, traînée, densité de l'air selon l'altitude, vent, rafales, turbulence et ondes de
+          relief. Train rentrant, volets et inverseurs de poussée.</p>
+      </div>
+      <div class="card">
+        <h3>9 avions détaillés</h3>
+        <p>Avion école, avion de tourisme, voltige, cargo, avion de ligne, bombardier et trois chasseurs, chacun avec
+          un cockpit en 3D.</p>
+      </div>
+      <div class="card">
+        <h3>7 cartes avec villes et relief</h3>
+        <p>Plaines, vallées, métropole côtière, archipel volcanique, canyons, fjords et haute montagne, avec des villes
+          générées quartier par quartier.</p>
+      </div>
+      <div class="card">
+        <h3>Aides à l'atterrissage</h3>
+        <p>ILS avec aiguilles de localizer et de pente, rampes PAPI au bout de chaque piste, miroir d'appontage sur le
+          porte-avions.</p>
+      </div>
+      <div class="card">
+        <h3>École, transport, combat</h3>
+        <p>7 leçons guidées, contrats de fret et de passagers payés à l'arrivée, campagne de 9 missions aériennes et
+          d'attaque au sol.</p>
+      </div>
+      <div class="card">
+        <h3>Multijoueur sans serveur</h3>
+        <p>Jusqu'à 8 pilotes dans la même session, avec radar, carte et messagerie partagés.</p>
+      </div>
+    </div>
+
+    <h2 id="avions">Les avions</h2>
+    <p>Choisissez votre avion dans la fenêtre <kbd>T</kbd> (Avion &amp; météo), au sol. Les vitesses de décrochage
+      sont données au niveau de la mer, volets rentrés.</p>
+    <div class="tw">
+      <table>
+        <tr>
+          <th>Avion</th>
+          <th>Type</th>
+          <th>Décrochage</th>
+          <th>Particularités</th>
+        </tr>
+        <tr>
+          <td>Alouette</td>
+          <td>Avion école, aile haute</td>
+          <td>79 km/h</td>
+          <td>Très stable, train fixe : idéal pour débuter</td>
+        </tr>
+        <tr>
+          <td>Sirocco</td>
+          <td>Tourisme, aile basse</td>
+          <td>101 km/h</td>
+          <td>Train rentrant, inverseur : l'avion par défaut</td>
+        </tr>
+        <tr>
+          <td>Faucon</td>
+          <td>Voltige</td>
+          <td>115 km/h</td>
+          <td>Roulis très rapide, peu stable : pour les figures</td>
+        </tr>
+        <tr>
+          <td>Atlas</td>
+          <td>Cargo bimoteur</td>
+          <td>122 km/h</td>
+          <td>Lourd et stable, emporte jusqu'à 4,5 tonnes</td>
+        </tr>
+        <tr>
+          <td>Mistral</td>
+          <td>Avion de ligne biréacteur</td>
+          <td>166 km/h</td>
+          <td>70 passagers, approche ILS recommandée</td>
+        </tr>
+        <tr>
+          <td>Condor</td>
+          <td>Bombardier bimoteur</td>
+          <td>130 km/h</td>
+          <td>16 bombes, viseur CCIP</td>
+        </tr>
+        <tr>
+          <td>Épervier</td>
+          <td>Chasseur delta à canards</td>
+          <td>180 km/h</td>
+          <td>Le plus agile, postcombustion</td>
+        </tr>
+        <tr>
+          <td>Harfang</td>
+          <td>Chasseur multirôle</td>
+          <td>198 km/h</td>
+          <td>6 missiles, appontage sur porte-avions</td>
+        </tr>
+        <tr>
+          <td>Titan</td>
+          <td>Avion d'appui blindé</td>
+          <td>144 km/h</td>
+          <td>Canon lourd, 10 bombes, blindage renforcé</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="ad" id="ad1"></div>
+
+    <h2 id="cartes">Les cartes</h2>
+    <p>Changez de carte dans la fenêtre <kbd>M</kbd>. Elles sont classées de la plus facile à la plus difficile.</p>
+    <div class="tw">
+      <table>
+        <tr>
+          <th>Carte</th>
+          <th>Difficulté</th>
+          <th>Paysage</th>
+        </tr>
+        <tr>
+          <td>Plaine du Fleuve</td>
+          <td><span class="dots" style="color:var(--green)">●○○○</span> Facile</td>
+          <td>Plaine agricole, fleuve à méandres et Fleuveville à cheval sur ses rives</td>
+        </tr>
+        <tr>
+          <td>Vallée</td>
+          <td><span class="dots" style="color:var(--green)">●○○○</span> Facile</td>
+          <td>Collines, lacs, crêtes jusqu'à 1 400 m, côte et porte-avions</td>
+        </tr>
+        <tr>
+          <td>Métropole</td>
+          <td><span class="dots" style="color:var(--cyan)">●●○○</span> Moyen</td>
+          <td>Grand-Lumière au fond d'une baie, tours jusqu'à 290 m, fleuve et montagne</td>
+        </tr>
+        <tr>
+          <td>Archipel</td>
+          <td><span class="dots" style="color:var(--cyan)">●●○○</span> Moyen</td>
+          <td>Îles, volcan de 1 150 m et porte-avions au large</td>
+        </tr>
+        <tr>
+          <td>Canyons</td>
+          <td><span class="dots" style="color:var(--amber)">●●●○</span> Difficile</td>
+          <td>Plateau désertique, mesas et gorges profondes</td>
+        </tr>
+        <tr>
+          <td>Fjords</td>
+          <td><span class="dots" style="color:var(--red)">●●●●</span> Expert</td>
+          <td>Bras de mer entre des falaises de 900 m, pistes au fond des fjords</td>
+        </tr>
+        <tr>
+          <td>Hautes-Alpes</td>
+          <td><span class="dots" style="color:var(--red)">●●●●</span> Expert</td>
+          <td>Sommets à 3 100 m, vallées étroites et altiport sur glacier</td>
+        </tr>
+      </table>
+    </div>
+
+    <h2 id="commandes">Commandes</h2>
+    <h3>Clavier (AZERTY et QWERTY)</h3>
+    <div class="tw">
+      <table>
+        <tr>
+          <td><kbd>Z</kbd>/<kbd>W</kbd> · <kbd>S</kbd></td>
+          <td>Gaz plus / moins</td>
+        </tr>
+        <tr>
+          <td><kbd>↓</kbd> ou <kbd>5</kbd> · <kbd>↑</kbd> ou <kbd>8</kbd></td>
+          <td>Cabrer (monter) · piquer (descendre) ; <kbd>I</kbd> inverse</td>
+        </tr>
+        <tr>
+          <td><kbd>←</kbd> <kbd>→</kbd> ou <kbd>4</kbd> <kbd>6</kbd></td>
+          <td>Roulis gauche / droite</td>
+        </tr>
+        <tr>
+          <td><kbd>A</kbd>/<kbd>Q</kbd> · <kbd>E</kbd>/<kbd>D</kbd></td>
+          <td>Palonnier (lacet)</td>
+        </tr>
+        <tr>
+          <td><kbd>G</kbd> · <kbd>Y</kbd> · <kbd>X</kbd> · <kbd>Espace</kbd></td>
+          <td>Train · volets · inverseur · freins</td>
+        </tr>
+        <tr>
+          <td><kbd>C</kbd> · souris</td>
+          <td>Changer de caméra (poursuite, cockpit, latérale, cinéma) · glisser pour regarder autour</td>
+        </tr>
+        <tr>
+          <td><kbd>M</kbd> · <kbd>T</kbd> · <kbd>J</kbd> · <kbd>L</kbd> · <kbd>U</kbd></td>
+          <td>Carte · avion et météo · missions · records · en ligne</td>
+        </tr>
+        <tr>
+          <td><kbd>K</kbd> · <kbd>R</kbd> · <kbd>Échap</kbd></td>
+          <td>Enregistrer le trajet · recommencer · pause</td>
+        </tr>
+      </table>
+    </div>
+    <h3>Manette et joystick</h3>
+    <p>Stick gauche : roulis et tangage. Stick droit : palonnier. Gâchettes : gaz. A : freins, B : train, Y : caméra, X :
+      missile, RB : canon, LB : leurres. La sensibilité de chaque axe, la zone morte et la progressivité se règlent
+      dans la fenêtre <kbd>T</kbd>, avec un graphique qui montre la réponse du stick en direct.</p>
+    <h3>Téléphone et tablette</h3>
+    <p>Tenez l'appareil en paysage. Les boutons tactiles commandent les gaz, le palonnier, les freins et le train. Le
+      bouton Inclinaison permet de piloter en penchant l'appareil comme un volant ; ramenez le haut de l'écran vers vous
+      pour monter.</p>
+
+    <h2 id="premier-vol">Premier vol</h2>
+    <ol>
+      <li>Choisissez l'Alouette (<kbd>T</kbd>) sur la Plaine du Fleuve ou la Vallée (<kbd>M</kbd>).</li>
+      <li>Mettez plein gaz (<kbd>Z</kbd>) et gardez l'avion dans l'axe avec le palonnier.</li>
+      <li>Vers 95 km/h, cabrez doucement (<kbd>↓</kbd>) : l'avion décolle.</li>
+      <li>Relâchez les commandes : les gouvernes reviennent au neutre et l'avion se stabilise tout seul.</li>
+      <li>Réduisez un peu les gaz pour la croisière et suivez la flèche de navigation vers l'aérodrome suivant.</li>
+    </ol>
+    <p>Pour aller plus loin, l'école de pilotage (<kbd>J</kbd>) propose sept leçons guidées, du premier vol à
+      l'appontage.</p>
+
+    <div class="ad" id="ad2"></div>
+
+    <h2 id="atterrissage">Atterrir avec l'ILS et le PAPI</h2>
+    <p>Un atterrissage réussi commence par une approche stable, sur une pente de 3° :</p>
+    <ul>
+      <li><strong>PAPI</strong> : quatre feux à gauche de la piste. Deux rouges et deux blancs, vous êtes sur la pente.
+        Plus de blancs : trop haut. Plus de rouges : trop bas.</li>
+      <li><strong>ILS</strong> : les losanges magenta de l'horizon artificiel indiquent l'écart avec l'axe (en bas) et
+        avec la pente (à droite). Ramenez-les au centre.</li>
+      <li>Sortez le train (<kbd>G</kbd>) et les volets (<kbd>Y</kbd>), réduisez les gaz, puis arrondissez juste
+        au-dessus de la piste pour toucher en douceur.</li>
+      <li>Sur le porte-avions, suivez la boule orange du miroir d'appontage, alignée sur les barres vertes. Les jets
+        accrochent un brin d'arrêt avec la crosse.</li>
+    </ul>
+    <p>La note d'atterrissage (Parfait, Bon, Ferme, Dur) dépend de la vitesse verticale et de la dérive au toucher.</p>
+
+    <h2 id="missions">Missions et école</h2>
+    <h3>École de pilotage</h3>
+    <p>Sept leçons guidées : premier vol, approche et atterrissage, cargo lourd, approche ILS en avion de ligne,
+      postcombustion et voltige, armement, appontage.</p>
+    <h3>Transport</h3>
+    <p>Acceptez des contrats de fret ou de passagers entre deux aérodromes. La charge alourdit l'avion, le délai compte,
+      et les passagers n'aiment ni les virages serrés ni les atterrissages durs.</p>
+    <h3>Combat</h3>
+    <p>Deux séries de missions : supériorité aérienne (drones, chasseurs, bombardiers, défenses sol-air) et attaque au
+      sol (dépôts, colonne blindée, infanterie) avec bombes et viseur CCIP. Chaque mission rapporte jusqu'à trois
+      étoiles.</p>
+
+    <h2 id="multijoueur">Multijoueur</h2>
+    <p>Ouvrez la fenêtre En ligne (<kbd>U</kbd>), choisissez un nom de pilote et un code de session, puis partagez le
+      lien avec vos amis. Jusqu'à 8 pilotes se retrouvent sur la même carte, sans inscription ni serveur de jeu. La
+      connexion peut échouer derrière certains pare-feu d'entreprise.</p>
+
+    <h2 id="faq">Questions fréquentes</h2>
+    <details>
+      <summary>SKYWAY est-il gratuit ?</summary>
+      <p>Oui. SKYWAY est entièrement gratuit, sans compte et sans achat intégré. Le site est financé par quelques
+        publicités affichées entre deux vols, jamais pendant le pilotage.</p>
+    </details>
+    <details>
+      <summary>Faut-il installer quelque chose ?</summary>
+      <p>Non. Le simulateur tourne dans un navigateur récent (Chrome, Edge, Firefox, Safari) grâce à WebGL. Il s'adapte
+        automatiquement à la puissance de la carte graphique.</p>
+    </details>
+    <details>
+      <summary>Peut-on jouer avec une manette ou un joystick ?</summary>
+      <p>Oui. Toute manette Xbox, PlayStation ou compatible fonctionne. La sensibilité, la zone morte et la
+        progressivité de chaque axe se règlent dans la fenêtre Avion &amp; météo (touche T).</p>
+    </details>
+    <details>
+      <summary>SKYWAY fonctionne-t-il sur téléphone et tablette ?</summary>
+      <p>Oui, en mode paysage, avec des boutons tactiles et un pilotage par inclinaison de l'appareil, comme un
+        volant.</p>
+    </details>
+    <details>
+      <summary>Peut-on voler à plusieurs ?</summary>
+      <p>Oui. Le mode En ligne (touche U) réunit jusqu'à 8 pilotes dans une même session grâce à un code partagé, sans
+        serveur de jeu : les navigateurs se connectent directement entre eux.</p>
+    </details>
+    <details>
+      <summary>Mes progrès sont-ils sauvegardés ?</summary>
+      <p>Oui, automatiquement dans le navigateur : records, carnet de vol, trajets enregistrés, progression de l'école
+        et de la campagne. Ils peuvent être exportés en fichier JSON depuis la fenêtre Records (L).</p>
+    </details>
+
+    <p style="margin-top:36px;text-align:center"><a class="play" href="./">▶ Jouer à SKYWAY</a></p>
+  </main>
+
+  <footer>
+    <a href="./">Jouer</a> · <a href="guide.html">Guide du pilote</a> · <a href="privacy.html">Confidentialité</a> ·
+    <a href="https://github.com/w2001-RF/skyway-3D-simulator" rel="noopener">Code source</a>
+  </footer>
+
+  <script>
+    // AdSense : Auto ads + deux blocs « display » responsives. Identifiants dans AdSense › Annonces.
+    // Vide = aucune publicité chargée (même ID éditeur que ADSENSE_CLIENT dans index.html).
+    const ADSENSE_CLIENT = '', ADSENSE_SLOTS = { ad1: '', ad2: '' };
+    if (/^ca-pub-\d{16}$/.test(ADSENSE_CLIENT) && location.protocol === 'https:') {
+      const s = document.createElement('script');
+      s.async = true; s.crossOrigin = 'anonymous';
+      s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + ADSENSE_CLIENT;
+      document.head.appendChild(s);
+      window.adsbygoogle = window.adsbygoogle || [];
+      for (const [id, slot] of Object.entries(ADSENSE_SLOTS)) {
+        if (!/^\d{6,}$/.test(slot)) continue;
+        const ins = document.createElement('ins');
+        ins.className = 'adsbygoogle'; ins.style.display = 'block';
+        Object.assign(ins.dataset, { adClient: ADSENSE_CLIENT, adSlot: slot, adFormat: 'auto', fullWidthResponsive: 'true' });
+        document.getElementById(id).appendChild(ins);
+        window.adsbygoogle.push({});
+      }
+    }
+  </script>
+</body>
+
+</html>
