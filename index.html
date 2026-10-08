@@ -1397,6 +1397,10 @@
       color: var(--amber)
     }
 
+    #touchPad .tbt.dim {
+      opacity: .5
+    }
+
     #touchPad .tbt.red {
       color: var(--red)
     }
@@ -6642,7 +6646,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       { id: 'yawR', type: 'hold', key: 'e', i: '▶', t: 'Pal.', name: 'Palonnier droit', c: 'l', x: 3.35, y: 0.75 },
       { id: 'brake', type: 'hold', key: ' ', t: 'Freins', c: 'l', x: 2.2, y: 1.9 },
       { id: 'rev', type: 'tap', key: 'x', t: 'Rev.', name: 'Inverseur de poussée', c: 'l', x: 3.35, y: 1.9, show: () => AC.reverse > 0 },
-      { id: 'gear', type: 'tap', key: 'g', t: 'Train', c: 'l', x: 2.2, y: 3.05, show: () => AC.retract },
+      { id: 'gear', type: 'tap', key: 'g', t: 'Roues', name: 'Roues / train (G)', c: 'l', x: 2.2, y: 3.05 },
       { id: 'flaps', type: 'tap', key: 'y', t: 'Volets', c: 'l', x: 3.35, y: 3.05 },
       { id: 'edit', type: 'tap', fn: () => tcEdit(true), i: '⚙', name: 'Disposition', c: 'r', x: 4.1, y: 4.05, w: 0.75, h: 0.75, keep: true },
       { id: 'stick', type: 'stick', name: 'Manche', c: 'r', x: 1.95, y: 1.95, w: 3, h: 3, show: () => !TILT.on, strict: true },
@@ -6741,7 +6745,8 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       }
       const D = id => TC_DEF.find(d => d.id === id);
       const g = D('gear'); g.el.classList.toggle('on', S.gearTarget === 1); g.el.classList.toggle('warn', S.gearPos > 0.02 && S.gearPos < 0.98);
-      g.lbl.textContent = S.gearTarget ? 'Train ↓' : 'Train ↑';
+      g.el.classList.toggle('dim', !AC.retract);
+      g.lbl.innerHTML = 'Roues<small>' + (!AC.retract ? 'fixes' : S.gearPos > 0.02 && S.gearPos < 0.98 ? 'en cours' : S.gearTarget ? 'sorties' : 'rentrées') + '</small>';
       const f = D('flaps'), fn = Math.round(S.flapTarget * 2); f.lbl.textContent = ['Volets 0', 'Volets 1', 'Volets 2'][fn]; f.el.classList.toggle('on', fn > 0);
       D('rev').el.classList.toggle('warn', !!S.reverse);
       D('brake').el.classList.toggle('on', !!S.braking);
