@@ -961,6 +961,7 @@
       margin: 4px 0 0
     }
 
+    #audBox,
     #ctlBox {
       display: flex;
       flex-direction: column;
@@ -1377,6 +1378,7 @@
     }
 
     #touchPad .tbt small {
+      display: block;
       font-size: .78em;
       font-weight: 600;
       color: var(--mute)
@@ -1970,6 +1972,15 @@
           <div class="seg" id="gfxTiers"></div>
           <label class="sl" style="cursor:pointer"><span>Résolution dynamique</span><input type="checkbox" id="gfxDyn"></label>
           <div class="psum" id="gfxInfo"></div>
+          <span class="lbl" style="margin-top:6px">Audio</span>
+          <div id="audBox">
+            <div class="sl"><span>Volume général</span><b id="audV_master"></b></div><input type="range" data-aud="master" min="0" max="100" step="5">
+            <div class="sl"><span>Moteur et bruitages</span><b id="audV_eng"></b></div><input type="range" data-aud="eng" min="0" max="100" step="5">
+            <div class="sl"><span>Radio (tour de contrôle)</span><b id="audV_radio"></b></div><input type="range" data-aud="radio" min="0" max="100" step="5">
+            <div class="sl"><span>Voix des pilotes (en ligne)</span><b id="audV_voice"></b></div><input type="range" data-aud="voice" min="0" max="100" step="5">
+            <label class="sl" style="cursor:pointer"><span>Voix de la tour (synthèse vocale)</span><input type="checkbox" data-aud="tts"></label>
+            <label class="sl" style="cursor:pointer"><span>Sous-titres radio</span><input type="checkbox" data-aud="subs"></label>
+          </div>
           <span class="lbl" style="margin-top:6px">Manette & inclinaison</span>
           <div id="ctlBox">
             <div class="sl"><span>Sensibilité tangage</span><b id="ctlV_p"></b></div><input type="range" data-ctl="p" min="30" max="200" step="5">
@@ -2556,17 +2567,31 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       if (o && typeof o === 'object') for (const k in CTL_DEF) if (Number.isFinite(o[k])) c[k] = Math.min(CTL_LIM[k][1], Math.max(CTL_LIM[k][0], o[k]));
       return c;
     }
+    // Réglages audio : volumes 0–1 (général, moteur, radio tour, voix des pilotes), synthèse vocale de la tour, sous-titres,
+    // portée radio limitée (voix des pilotes), mode du micro (ptt = appuyer pour parler, open = micro ouvert, off = écoute seule)
+    const AUDIO_DEF = { master: 1, eng: 0.8, radio: 0.9, voice: 1, tts: true, subs: true, range: false, mic: 'ptt' };
+    function audioSettings(o) {
+      const a = { ...AUDIO_DEF };
+      if (o && typeof o === 'object') {
+        for (const k of ['master', 'eng', 'radio', 'voice']) if (Number.isFinite(o[k])) a[k] = Math.min(1, Math.max(0, o[k]));
+        for (const k of ['tts', 'subs', 'range']) if (typeof o[k] === 'boolean') a[k] = o[k];
+        if (['ptt', 'open', 'off'].includes(o.mic)) a.mic = o.mic;
+      }
+      return a;
+    }
     const DB = (() => {
       const d = Store.load() || {};
       const settings = Object.assign({ invert: false, sound: true, ac: 'sirocco', gfx: 'auto', dynRes: true, map: 'vallee' }, d.settings);
       settings.wx = Object.assign({ preset: 'brise', from: 270, base: 5, gust: 0.25, turb: 0.2 }, settings.wx);
       settings.ctl = ctlSettings(settings.ctl);
+      settings.audio = audioSettings(settings.audio);
       if (!AIRCRAFT[settings.ac]) settings.ac = 'sirocco';
       return { flights: Array.isArray(d.flights) ? d.flights : [], best: Object.assign({ maxAlt: 0, maxSpeed: 0, longest: 0, softest: null }, d.best), settings };
     })();
     const persist = () => Store.save(DB);
     const WX = DB.settings.wx;
     const CTL = DB.settings.ctl;
+    const AUD = DB.settings.audio;
     let AC = AIRCRAFT[DB.settings.ac];
 
     // ════════════════════════ Profil graphique : détection du GPU, niveaux de qualité ════════════════════════
@@ -4859,6 +4884,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       sideOffset.set(10 + L.span * 0.6, 3, -2);
     }
     function animatePlaneParts(dt, t) {
+      if (S.crashed) return;                                        // épave : les pièces détachées ne sont plus animées
       const P = plane.userData.parts;
       P.ail.forEach(a => a.piv.rotation.x = (a.side < 0 ? 1 : -1) * 0.4 * S.ctl.r);
       P.elev.rotation.x = 0.4 * S.ctl.p;
@@ -4901,46 +4927,261 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
     }
 
     // ════════════════════════ Son ════════════════════════
+    // ════════════════════════ Son : moteurs, vent, bruitages, radio (Web Audio, tout est synthétisé) ════════════════════════
+    // Bus : moteur du joueur + vent + roulage (filtre « cockpit / extérieur » selon la caméra), moteurs des autres pilotes,
+    // bruitages (crash, train, pneus), radio. Chaque moteur est une EngineVoice : piston (impulsions d'échappement, hélice,
+    // admission) ou réacteur (grondement, rugissement, sifflement de soufflante, postcombustion).
+    function noiseBuf(c, type, secs) {
+      const n = Math.floor(c.sampleRate * secs), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, last = 0, env = 0;
+      for (let i = 0; i < n; i++) {
+        const w = Math.random() * 2 - 1;
+        if (type === 'white') d[i] = w;
+        else if (type === 'pink') {
+          b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852; b3 = 0.8665 * b3 + w * 0.3104856;
+          b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898; d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11; b6 = w * 0.115926;
+        } else if (type === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
+        else { if (Math.random() < 0.0012) env = 0.35 + Math.random() * 0.65; d[i] = w * env; env *= 0.97; }   // crépitement : impulsions éparses
+      }
+      return b;
+    }
+    // Forme d'onde d'un pot d'échappement : harmoniques riches, phases fixes (son « rond » et stable)
+    function exhaustWave(c) {
+      const N = 48, re = new Float32Array(N + 1), im = new Float32Array(N + 1), R = mulberry32(77);
+      for (let n = 1; n <= N; n++) { const a = Math.pow(n, -0.8) * (n % 2 ? 1 : 1.15) * (n >= 2 && n <= 5 ? 1.4 : 1), ph = R() * Math.PI * 2; re[n] = a * Math.cos(ph); im[n] = a * Math.sin(ph); }
+      return c.createPeriodicWave(re, im);
+    }
+    class EngineVoice {
+      constructor(snd, out, kind, o = {}) {
+        const c = snd.ctx;
+        Object.assign(this, { c, snd, kind, cyl: o.cyl || 6, blades: o.blades || 3, twin: !!o.twin, src: [], nz: [], nodes: [] });
+        const G = (v = 0) => { const g = c.createGain(); g.gain.value = v; this.nodes.push(g); return g; };
+        const F = (type, f, q = 0.7) => { const b = c.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; this.nodes.push(b); return b; };
+        const O = (f, type = 'sine') => { const n = c.createOscillator(); if (type === 'wave') n.setPeriodicWave(snd.wave); else n.type = type; n.frequency.value = f; n.start(); this.src.push(n); return n; };
+        const N = buf => { const n = c.createBufferSource(); n.buffer = buf; n.loop = true; n.start(0, Math.random() * buf.duration); this.src.push(n); this.nz.push(n); return n; };
+        this.mix = G(0); this.tone = F('lowpass', 2500, 0.5); this.mix.connect(this.tone); this.tone.connect(out);
+        if (kind === 'piston') {
+          this.o1 = O(40, 'wave'); this.o2 = O(40, 'wave'); this.sub = O(20);
+          this.g1 = G(); this.g2 = G(); this.gs = G();
+          this.o1.connect(this.g1); this.g1.connect(this.mix); this.o2.connect(this.g2); this.g2.connect(this.mix); this.sub.connect(this.gs); this.gs.connect(this.mix);
+          this.ni = N(snd.pink); this.fi = F('bandpass', 600, 0.8); this.gi = G();                 // admission / échappement
+          this.ni.connect(this.fi); this.fi.connect(this.gi); this.gi.connect(this.mix);
+          this.nw = N(snd.white); this.fw = F('bandpass', 300, 0.9); this.ga = G(0.5); this.gw = G();   // souffle d'hélice, haché par les pales
+          this.nw.connect(this.fw); this.fw.connect(this.ga); this.ga.connect(this.gw); this.gw.connect(this.mix);
+          this.lfo = O(30); this.lg = G(0.45); this.lfo.connect(this.lg); this.lg.connect(this.ga.gain);
+        } else {
+          this.nr = N(snd.pink); this.fr = F('lowpass', 250, 0.7); this.gr = G(); this.nr.connect(this.fr); this.fr.connect(this.gr); this.gr.connect(this.mix);   // grondement
+          this.no = N(snd.white); this.fo = F('bandpass', 1200, 0.6); this.go = G(); this.no.connect(this.fo); this.fo.connect(this.go); this.go.connect(this.mix);   // rugissement
+          this.nh = N(snd.white); this.fh = F('highpass', 3500, 0.7); this.gh = G(); this.nh.connect(this.fh); this.fh.connect(this.gh); this.gh.connect(this.mix);   // sifflement d'air
+          this.w1 = O(900); this.w2 = O(1400); this.gw1 = G(); this.gw2 = G();                    // turbine : deux raies inharmoniques
+          this.w1.connect(this.gw1); this.gw1.connect(this.mix); this.w2.connect(this.gw2); this.gw2.connect(this.mix);
+          this.na = N(snd.brown); this.fa = F('lowpass', 320, 0.7); this.gab = G(); this.na.connect(this.fa); this.fa.connect(this.gab); this.gab.connect(this.mix);   // postcombustion
+          this.nc = N(snd.crackle); this.fc = F('bandpass', 900, 0.8); this.gc = G(); this.nc.connect(this.fc); this.fc.connect(this.gc); this.gc.connect(this.mix);
+        }
+      }
+      // p : {rpm, rpmMax, thr, spool (réacteur, 0,3…1), ab, rev, pitch, rate (Doppler), bright, vol}
+      update(p) {
+        const t = this.c.currentTime, rt = p.rate || 1, sp = (g, v, tc = 0.07) => g.setTargetAtTime(v, t, tc);
+        for (const n of this.nz) n.playbackRate.setTargetAtTime(rt, t, 0.1);
+        if (this.kind === 'piston') {
+          const r = clamp(p.rpm / p.rpmMax, 0, 1.1), thr = p.thr, f = Math.max(8, p.rpm / 60 * this.cyl / 2 * p.pitch * rt);
+          const j = 1 + 0.004 * Math.sin(t * 6.1) + 0.003 * Math.sin(t * 13.7 + 1) + (Math.random() - 0.5) * 0.003;   // irrégularité de combustion
+          sp(this.o1.frequency, f * j, 0.05); sp(this.o2.frequency, f * j * (1.004 + (this.twin ? 0.012 : 0)), 0.05); sp(this.sub.frequency, f * 0.5 * j, 0.05);
+          const L = 0.55 + 0.45 * thr;
+          sp(this.g1.gain, 0.34 * L); sp(this.g2.gain, 0.24 * L); sp(this.gs.gain, 0.2 * (1.1 - 0.5 * thr));
+          sp(this.fi.frequency, 280 + 900 * r + 900 * thr); sp(this.gi.gain, 0.04 + 0.22 * thr * thr + 0.05 * r);
+          sp(this.fw.frequency, 160 + 420 * r); sp(this.gw.gain, (0.05 + 0.4 * r * r * (0.5 + 0.5 * thr)) * (p.rev ? 1.6 : 1));
+          sp(this.lfo.frequency, Math.max(4, p.rpm / 60 * this.blades * rt)); sp(this.lg.gain, 0.25 + 0.35 * thr);
+          sp(this.tone.frequency, (650 + 2300 * r + 1700 * thr) * p.bright);
+        } else {
+          const n = clamp(p.spool, 0, 1.05), fan = this.kind === 'fan', ab = p.ab ? 1 : 0, rv = p.rev ? 1 : 0;
+          sp(this.fr.frequency, 160 + 260 * n); sp(this.gr.gain, (0.3 + 0.5 * n) * (fan ? 0.8 : 1) * (1 + 0.3 * rv));
+          sp(this.fo.frequency, 500 + 1900 * n); sp(this.go.gain, (0.03 + 0.5 * n * n * n) * (fan ? 0.7 : 1) * (1 + 0.8 * rv) + 0.22 * ab);
+          sp(this.gh.gain, fan ? 0.02 + 0.16 * n * n : 0.01 + 0.07 * n * n * n);
+          const f = (fan ? 700 + 2600 * n : 1100 + 4200 * n) * rt;
+          sp(this.w1.frequency, f); sp(this.w2.frequency, f * (fan ? 1.502 : 1.347));
+          sp(this.gw1.gain, fan ? 0.012 + 0.07 * n * n : 0.01 + 0.035 * n * n); sp(this.gw2.gain, fan ? 0.006 + 0.04 * n * n : 0.005 + 0.02 * n * n);
+          sp(this.gab.gain, 0.9 * ab, 0.12); sp(this.gc.gain, 0.55 * ab, 0.12);
+          sp(this.tone.frequency, (900 + 7000 * n) * p.bright);
+        }
+        sp(this.mix.gain, p.vol * (this.kind === 'piston' ? 0.3 + 0.7 * p.thr : 1), 0.08);   // le piston au ralenti est bien plus discret qu'à pleine puissance
+      }
+      dispose() {
+        for (const s of this.src) { try { s.stop(); } catch (e) { } s.disconnect(); }
+        for (const n of this.nodes) n.disconnect();
+        this.mix.disconnect(); this.tone.disconnect();
+      }
+    }
+    const engineKind = ac => ac.jet ? 'jet' : ac.look && ac.look.fan ? 'fan' : 'piston';
+    const engineOpts = ac => ({ cyl: ac.id === 'alouette' ? 4 : ac.id === 'atlas' || ac.id === 'condor' ? 8 : 6, blades: ac.id === 'alouette' ? 2 : 3, twin: !!(ac.look && ac.look.twin) });
+    // Paramètres d'un moteur à partir d'un avion et de l'état (rpm, gaz)
+    function engineParams(ac, rpm, thr, o) {
+      const kind = engineKind(ac), spool = kind === 'piston' ? 0 : 0.3 + 0.7 * clamp((rpm - 700) / (ac.rpmMax - 900), 0, 1.05);
+      return { rpm, rpmMax: ac.rpmMax, thr, spool, pitch: ac.snd, ab: false, rev: false, rate: 1, bright: 1, vol: 0.5, ...o };
+    }
     const Snd = {
-      ctx: null,
+      ctx: null, rem: new Map(),
       init() {
         if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
         try {
-          const C = window.AudioContext || window.webkitAudioContext; this.ctx = new C();
-          this.gain = this.ctx.createGain(); this.gain.gain.value = 0;
-          this.filter = this.ctx.createBiquadFilter(); this.filter.type = 'lowpass'; this.filter.frequency.value = 800;
-          this.o1 = this.ctx.createOscillator(); this.o1.type = 'sawtooth';
-          this.o2 = this.ctx.createOscillator(); this.o2.type = 'square';
-          this.o1.connect(this.filter); this.o2.connect(this.filter); this.filter.connect(this.gain); this.gain.connect(this.ctx.destination);
-          this.o1.start(); this.o2.start();
+          const C = window.AudioContext || window.webkitAudioContext, c = this.ctx = new C();
+          const bus = (to, v = 1) => { const g = c.createGain(); g.gain.value = v; g.connect(to); return g; };
+          this.master = c.createGain(); this.master.gain.value = 0;
+          this.comp = c.createDynamicsCompressor(); this.comp.threshold.value = -16; this.comp.knee.value = 18; this.comp.ratio.value = 5; this.comp.attack.value = 0.004; this.comp.release.value = 0.25;
+          this.an = c.createAnalyser(); this.an.fftSize = 1024;
+          this.master.connect(this.comp); this.comp.connect(c.destination); this.comp.connect(this.an);
+          this.lp = c.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 6000; this.lp.Q.value = 0.4; this.lp.connect(this.master);
+          this.bEng = bus(this.lp); this.bWorld = bus(this.master); this.bFx = bus(this.master); this.bRadio = bus(this.master);
+          this.white = noiseBuf(c, 'white', 2); this.pink = noiseBuf(c, 'pink', 4); this.brown = noiseBuf(c, 'brown', 4); this.crackle = noiseBuf(c, 'crackle', 4);
+          this.wave = exhaustWave(c);
+          // Boucles toujours actives (gain 0 tant qu'elles ne servent pas) : vent, roulage, secousses de décrochage, feu
+          const loop = (buf, ft, f, q, out) => {
+            const s = c.createBufferSource(); s.buffer = buf; s.loop = true; s.start(0, Math.random() * buf.duration);
+            const fl = c.createBiquadFilter(); fl.type = ft; fl.frequency.value = f; fl.Q.value = q; const g = c.createGain(); g.gain.value = 0;
+            s.connect(fl); fl.connect(g); g.connect(out); return { s, fl, g };
+          };
+          this.wind = loop(this.pink, 'bandpass', 500, 0.35, this.bEng); this.roll = loop(this.brown, 'lowpass', 120, 0.7, this.bEng);
+          this.tyre = loop(this.pink, 'bandpass', 700, 0.8, this.bEng); this.buf = loop(this.brown, 'lowpass', 90, 0.7, this.bEng);
+          this.fireC = loop(this.crackle, 'bandpass', 2400, 0.6, this.bFx); this.fireR = loop(this.brown, 'lowpass', 190, 0.7, this.bFx);
+          this.stat = loop(this.white, 'bandpass', 2600, 0.9, this.bRadio);       // souffle de la radio
+          this.motor = c.createOscillator(); this.motor.type = 'sawtooth'; this.motor.frequency.value = 95;
+          this.motorF = c.createBiquadFilter(); this.motorF.type = 'lowpass'; this.motorF.frequency.value = 500; this.motorG = c.createGain(); this.motorG.gain.value = 0;
+          this.motor.connect(this.motorF); this.motorF.connect(this.motorG); this.motorG.connect(this.bEng); this.motor.start();
+          this.squeal = c.createOscillator(); this.squeal.type = 'triangle'; this.squeal.frequency.value = 1750; this.squealG = c.createGain(); this.squealG.gain.value = 0;
+          this.squeal.connect(this.squealG); this.squealG.connect(this.bEng); this.squeal.start();
+          this.player = null; this.gp0 = 1; this.ab0 = false; this.camPrev = new THREE.Vector3(); this.t0 = 0;
         } catch (e) { this.ctx = null; }
       },
+      // Niveau de sortie (RMS, 0…1) : contrôle des tests et de l'indicateur de micro
+      level() {
+        if (!this.an) return 0;
+        const d = new Float32Array(this.an.fftSize); this.an.getFloatTimeDomainData(d);
+        let s = 0; for (const v of d) s += v * v; return Math.sqrt(s / d.length);
+      },
       update() {
+        const c = this.ctx; if (!c) return;
+        const now = performance.now(), dt = Math.min(0.1, Math.max(0.001, (now - (this.t0 || now)) / 1000)); this.t0 = now;
+        const t = c.currentTime, A = DB.settings.audio, snd = DB.settings.sound, sp = (g, v, tc = 0.08) => g.setTargetAtTime(v, t, tc);
+        sp(this.master.gain, snd ? A.master : 0, 0.05); sp(this.bEng.gain, A.eng, 0.05); sp(this.bWorld.gain, A.eng, 0.05); sp(this.bRadio.gain, A.radio, 0.05);
+        // Distance caméra → avion, effet Doppler (caméras fixes du mode cinéma), filtre cockpit / extérieur
+        const inCock = S.cam === 1, d = camera.position.distanceTo(plane.position);
+        let rate = 1;
+        if (!inCock) {
+          const jump = this.camPrev.distanceToSquared(camera.position) > 160000 ? 0 : 1;
+          if (jump && dt > 0) {
+            const vx = (camera.position.x - this.camPrev.x) / dt, vy = (camera.position.y - this.camPrev.y) / dt, vz = (camera.position.z - this.camPrev.z) / dt;
+            const dx = camera.position.x - plane.position.x, dy = camera.position.y - plane.position.y, dz = camera.position.z - plane.position.z, L = Math.hypot(dx, dy, dz) || 1;
+            const app = ((S.vel.x - vx) * dx + (S.vel.y - vy) * dy + (S.vel.z - vz) * dz) / L;       // > 0 : l'avion se rapproche de la caméra
+            rate = 343 / (343 - clamp(app, -200, 200));
+          }
+        }
+        this.camPrev.copy(camera.position);
+        this.rate = (this.rate || 1) + (rate - (this.rate || 1)) * Math.min(1, dt * 6);
+        const att = inCock ? 1 : 1 / (1 + Math.pow(Math.max(0, d - 12) / 90, 1.3));
+        sp(this.lp.frequency, inCock ? 1700 : clamp(9000 / (1 + d / 250), 1400, 9000), 0.1);
+        // Moteur du joueur
+        const ac = AC, kind = engineKind(ac);
+        if (!this.player || this.player.key !== ac.id) {
+          if (this.player) this.player.dispose();
+          this.player = new EngineVoice(this, this.bEng, kind, engineOpts(ac)); this.player.key = ac.id;
+        }
+        const alive = !S.crashed && !S.paused;
+        this.player.update(engineParams(ac, S.rpm, S.throttle, { ab: !!S.ab, rev: !!S.reverse && S.onGround, rate: this.rate, bright: inCock ? 0.8 : 1.15, vol: alive ? 0.5 * att * (inCock ? 0.95 : 1) : 0 }));
+        if (S.ab && !this.ab0 && alive) this.thump(0.5 * att);
+        this.ab0 = !!S.ab;
+        // Vent relatif, roulage, pneus, freins, décrochage
+        const v = S.vel.length(), vn = clamp(v / Math.max(60, ac.vne), 0, 1.2), air = S.onGround ? 0.45 : 1;
+        sp(this.wind.g.gain, alive ? Math.pow(vn, 1.7) * 0.5 * air * (inCock ? 0.55 : 0.8) * att : 0);
+        sp(this.wind.fl.frequency, 260 + v * 11);
+        const rv = S.onGround ? Math.abs(S.roll) : 0;
+        sp(this.roll.g.gain, alive ? clamp(rv / 45, 0, 1) * 0.42 * att : 0); sp(this.roll.fl.frequency, 110 + rv * 3.5);
+        sp(this.tyre.g.gain, alive ? clamp((rv - 3) / 55, 0, 1) * 0.06 * att : 0); sp(this.tyre.fl.frequency, 500 + rv * 9);
+        sp(this.squealG.gain, alive && S.braking && rv > 8 ? 0.012 * clamp(rv / 30, 0, 1) * att : 0, 0.05);
+        sp(this.buf.g.gain, alive && !S.onGround ? (S.stalled ? 0.5 : S.stallWarn ? 0.12 : 0) * att : 0, 0.15);
+        // Train et volets : moteur électrique, claquement en fin de course
+        const gm = Math.abs(S.gearTarget - S.gearPos) > 0.004, fm = Math.abs(S.flapTarget - S.flapPos) > 0.003;
+        sp(this.motorG.gain, alive && (gm || fm) ? 0.05 * att : 0, 0.05); sp(this.motor.frequency, gm ? 78 + S.gearPos * 30 : 118, 0.1);
+        if (alive && ((this.gp0 < 0.999 && S.gearPos >= 0.999) || (this.gp0 > 0.001 && S.gearPos <= 0.001))) this.thunk(0.7 * att);
+        this.gp0 = S.gearPos;
+        // Radio : souffle pendant une transmission (piloté par l'extension radio)
+        sp(this.stat.g.gain, this.radioOn ? 0.05 : 0, 0.03);
+        // Feu de l'épave
+        const fl = (typeof CRASHFX !== 'undefined' && CRASHFX.active) ? CRASHFX.fireSnd * att : 0;
+        sp(this.fireC.g.gain, fl * 0.55, 0.2); sp(this.fireR.g.gain, fl * 0.45, 0.2);
+        // Moteurs des autres pilotes : ceux qui n'ont pas été rafraîchis cette image disparaissent
+        for (const [k, r] of this.rem) if (!r.seen) { r.v.dispose(); this.rem.delete(k); } else r.seen = false;
+      },
+      // Moteur d'un autre pilote (en ligne) : distance, Doppler, filtre selon l'éloignement
+      remote(key, ac, thr, dist, approach) {
         if (!this.ctx) return;
-        const t = this.ctx.currentTime, r = S.rpm / AC.rpmMax, on = DB.settings.sound && !S.crashed && !S.paused;
-        this.o1.frequency.setTargetAtTime((32 + r * 95) * AC.snd, t, 0.1);
-        this.o2.frequency.setTargetAtTime((16 + r * 47) * AC.snd * (AC.look.twin ? 1.02 : 1), t, 0.1);
-        this.filter.frequency.setTargetAtTime(350 + r * 1500, t, 0.1);
-        this.gain.gain.setTargetAtTime(on ? 0.025 + S.throttle * 0.05 : 0, t, 0.12);
+        let r = this.rem.get(key);
+        if (!r || r.ac !== ac.id) {
+          if (r) r.v.dispose();
+          r = { ac: ac.id, v: new EngineVoice(this, this.bWorld, engineKind(ac), engineOpts(ac)), seen: true }; this.rem.set(key, r);
+        }
+        r.seen = true;
+        const rpm = 700 + thr * (ac.rpmMax - 900), g = 1 / (1 + Math.pow(dist / 180, 1.4));
+        r.v.update(engineParams(ac, rpm, thr, { rate: 343 / (343 - clamp(approach, -200, 200)), bright: clamp(1.4 / (1 + dist / 900), 0.18, 1.2), vol: dist < 6000 && !S.paused ? 0.5 * g : 0 }));
       },
       beep(freq = 880, dur = 0.12, vol = 0.05) {
         if (!this.ctx || !DB.settings.sound) return;
         const o = this.ctx.createOscillator(), g = this.ctx.createGain();
         o.type = 'square'; o.frequency.value = freq; g.gain.value = vol;
-        o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + dur);
+        o.connect(g); g.connect(this.bFx); o.start(); o.stop(this.ctx.currentTime + dur);
       },
-      boom() {
-        if (!this.ctx || !DB.settings.sound) return;
-        const c = this.ctx, len = c.sampleRate * 1.2, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
-        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
-        const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
-        src.buffer = buf; f.type = 'lowpass'; f.frequency.value = 600; g.gain.value = 0.5;
-        src.connect(f); f.connect(g); g.connect(c.destination); src.start();
+      // Bruit filtré à enveloppe : base de tous les chocs (claquement, impact, éclaboussure…)
+      burst({ buf = 'white', type = 'lowpass', f = 600, f2 = 0, q = 0.7, vol = 0.4, a = 0.004, d = 0.3, delay = 0, rate = 1, out = null }) {
+        const c = this.ctx; if (!c || !DB.settings.sound) return;
+        const s = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain(), t0 = c.currentTime + delay;
+        s.buffer = this[buf]; s.playbackRate.value = rate; fl.type = type; fl.Q.value = q; fl.frequency.setValueAtTime(f, t0); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t0 + d);
+        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(vol, t0 + a); g.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d);
+        s.connect(fl); fl.connect(g); g.connect(out || this.bFx); s.start(t0, Math.random() * 1.5); s.stop(t0 + a + d + 0.05);
+      },
+      tone(f0, f1, vol, d, type = 'sine', delay = 0) {
+        const c = this.ctx; if (!c || !DB.settings.sound) return;
+        const o = c.createOscillator(), g = c.createGain(), t0 = c.currentTime + delay;
+        o.type = type; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + d);
+        g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d); o.connect(g); g.connect(this.bFx); o.start(t0); o.stop(t0 + d + 0.05);
+      },
+      thunk(v = 0.6) { this.burst({ buf: 'brown', f: 260, vol: v, d: 0.22 }); this.tone(85, 38, v * 0.6, 0.2); },
+      thump(v = 0.5) { this.burst({ buf: 'brown', f: 180, vol: v, d: 0.35 }); this.tone(60, 30, v * 0.7, 0.3); },
+      // Atterrissage : crissement de pneus (selon le taux de chute) + choc sourd
+      touchdown(vs) {
+        const k = clamp(Math.abs(vs) / 3, 0.15, 1.2);
+        this.burst({ buf: 'pink', type: 'bandpass', f: 1300, q: 2.2, vol: 0.18 * k, a: 0.01, d: 0.22 + 0.2 * k });
+        this.tone(900, 700, 0.03 * k, 0.25, 'triangle'); this.thump(0.45 * k);
+      },
+      // Crash : choc, métal broyé, explosion (selon la vitesse d'impact), débris
+      crash(power, water) {
+        if (water) { this.burst({ buf: 'pink', type: 'lowpass', f: 2500, f2: 300, vol: 0.55 * power, d: 1.3 }); this.burst({ buf: 'brown', f: 220, vol: 0.5 * power, d: 0.7 }); this.tone(70, 28, 0.45 * power, 0.6); return; }
+        this.burst({ buf: 'brown', f: 300, vol: 0.7, d: 0.3 }); this.tone(90, 28, 0.6, 0.45);
+        for (let i = 0; i < 5; i++) this.burst({ buf: 'white', type: 'bandpass', f: 500 + Math.random() * 2200, q: 3, vol: 0.2 + Math.random() * 0.2, d: 0.08 + Math.random() * 0.12, delay: i * 0.05 + Math.random() * 0.1 });   // tôle déchirée
+        if (power > 0.25) this.explosion(power, 0.08);
+        for (let i = 0; i < 9; i++) this.burst({ buf: 'white', type: 'highpass', f: 2500 + Math.random() * 3000, vol: 0.05 + Math.random() * 0.06, d: 0.05, delay: 0.5 + i * 0.28 + Math.random() * 0.2 });   // débris qui retombent
+      },
+      explosion(power = 1, delay = 0) {
+        this.burst({ buf: 'white', f: 2000, f2: 70, vol: 0.9 * Math.min(1.3, power), a: 0.01, d: 2.6, delay });
+        this.burst({ buf: 'brown', f: 160, f2: 40, vol: 1.0 * Math.min(1.3, power), a: 0.02, d: 2.2, delay });
+        this.tone(55, 22, 0.8 * Math.min(1.2, power), 1.6, 'sine', delay);
+        this.burst({ buf: 'crackle', type: 'bandpass', f: 1800, q: 0.8, vol: 0.5, a: 0.3, d: 3, delay: delay + 0.2 });
+      },
+      scrape(level) { if (this.ctx && level > 0.05) this.burst({ buf: 'white', type: 'bandpass', f: 700 + Math.random() * 900, q: 2.5, vol: 0.12 * level, a: 0.01, d: 0.12 }); },
+      boom() { this.crash(1, false); },
+      // Radio : déclic d'émission, souffle, murmure (si la synthèse vocale est indisponible)
+      squelch() { this.burst({ buf: 'white', type: 'bandpass', f: 2200, q: 1.2, vol: 0.16, a: 0.002, d: 0.07, out: this.bRadio }); },
+      babble(sec) {
+        const c = this.ctx; if (!c || !DB.settings.sound) return;
+        const s = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain(), t0 = c.currentTime + 0.05;
+        s.buffer = this.pink; s.loop = true; fl.type = 'bandpass'; fl.Q.value = 2.2; g.gain.value = 0;
+        for (let t = 0; t < sec; t += 0.07 + Math.random() * 0.13) { g.gain.setTargetAtTime(Math.random() < 0.15 ? 0.001 : 0.05 + Math.random() * 0.12, t0 + t, 0.015); fl.frequency.setTargetAtTime(380 + Math.random() * 1500, t0 + t, 0.02); }
+        g.gain.setTargetAtTime(0, t0 + sec, 0.02);
+        s.connect(fl); fl.connect(g); g.connect(this.bRadio); s.start(t0, Math.random()); s.stop(t0 + sec + 0.2);
       }
     };
 
     // ════════════════════════ Vol ════════════════════════
     function placeAtAirport(id) {
+      crashClear();
       const ap = apById(id) || AIRPORTS[0];
       // Porte-avions : les jets partent de la catapulte, les autres de la poupe (roulage sur tout le pont)
       const w = toWorld(ap, 0, ap.carrier ? (AC.jet ? CV.CAT0 : CV.START) : -RUNWAY_LEN / 2 + 25);
@@ -4970,6 +5211,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       if (id === AC.id) return;
       if (!S.onGround && !S.crashed) { toast("Changez d'avion une fois posé au sol", 'caution'); return; }
       AC = AIRCRAFT[id]; DB.settings.ac = id; persist();
+      crashClear();
       scene.remove(plane); plane = createPlane(AC); scene.add(plane); applyAircraftCamera();
       if (mission.active) Object.assign(mission, { idx: 0, started: false, elapsed: 0, dist: 0 });
       const at = mission.active ? mission.from : S.home;
@@ -5010,7 +5252,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       else toast('Décollage', 'ok');
     }
     function onTouchdown(vs, lat) {
-      S.lastTouch = vs; S.lastLat = lat;
+      S.lastTouch = vs; S.lastLat = lat; Snd.touchdown(vs);
       const gr = gradeLanding(vs, lat);
       toast(`Toucher · ${vs.toFixed(1)} m/s · dérive ${Math.abs(lat).toFixed(1)} m/s · ${gr.label}`, gr.stars >= 2 ? 'ok' : 'caution');
     }
@@ -5368,12 +5610,16 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         updateBests(f, null);
       }
       S.flight = null; S.airborne = false; S.speed = 0; S.roll = 0; S.throttle = 0;
-      plane.visible = false; explode(plane.position.clone()); Snd.boom();
-      setTimeout(() => {
+      try { crashStart(); } catch (e) { console.warn('crashStart', e); crashClear(); plane.visible = false; explode(plane.position.clone()); Snd.boom(); }   // jamais de crash sans panneau
+      // Le panneau « Crash » attend la fin de l'animation : 1,8 s après l'impact (7 s au plus si l'épave tombe de haut)
+      const t0 = performance.now(), dlg = () => {
         if (!S.crashed) return;
+        const now = performance.now();
+        if (now - t0 < 7000 && !(WRK.impacted && now - WRK.impactAt > 1800)) { setTimeout(dlg, 150); return; }
         showDialog('Crash', `<p class="dmsg">${esc(msg)}</p>` + (f ? kv([['Avion', AC.name], ['Temps de vol', fmtTime(f.time)], ['Distance', fmtDist(f.dist)], ['Altitude max', Math.round(f.maxAlt) + ' m']]) : ''),
           [['Avion & météo', () => openModal('acModal')], ['Recommencer (R)', resetFlight, true]], 'bad');
-      }, 900);
+      };
+      setTimeout(dlg, 900);
     }
 
     // ════════════════════════ Monde animé ════════════════════════
@@ -5425,6 +5671,314 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         p.v.x += windNow.x * 0.3 * dt; p.v.z += windNow.z * 0.3 * dt;
         p.m.scale.setScalar(1 + (1 - p.life / p.max) * p.grow); p.m.material.opacity = p.life / p.max;
       }
+    }
+
+    // ════════════════════════ Crash : épave qui roule, débris, boule de feu, incendie, fumée ════════════════════════
+    // À l'impact, l'avion devient un corps rigide (vitesse d'impact conservée, rebonds, frottement, culbutes) : gouvernes, train
+    // et hélices se détachent et volent séparément, des éclats de tôle sont projetés, une boule de feu (selon la vitesse et le
+    // carburant), des étincelles, de la poussière et une colonne de fumée noire montent ; l'épave brûle ~1 min et fume ~2 min.
+    // Dans l'eau : gerbe, l'épave flotte puis coule, pas d'incendie. Les effets sont mis à jour même pendant une fenêtre
+    // modale (le panneau « Crash » s'affiche par-dessus l'animation).
+    const FXS = 20;   // flottants par particule : x y z vx vy vz vie vieMax s0 s1 r0 g0 b0 r1 g1 b1 a0 frein flottabilité gravité
+    class FxPool {
+      constructor(max, additive) {
+        this.max = max; this.n = 0; this.d = new Float32Array(max * FXS);
+        this.pos = new Float32Array(max * 3); this.size = new Float32Array(max); this.col = new Float32Array(max * 4);
+        const g = this.geo = new THREE.BufferGeometry();
+        this.aPos = new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage); this.aSize = new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage); this.aCol = new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage);
+        g.setAttribute('position', this.aPos); g.setAttribute('aSize', this.aSize); g.setAttribute('aCol', this.aCol); g.setDrawRange(0, 0);
+        this.mat = new THREE.ShaderMaterial({
+          uniforms: { map: { value: FXG.tex }, uScale: { value: 500 } }, transparent: true, depthWrite: false, fog: false,
+          blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+          vertexShader: 'attribute float aSize; attribute vec4 aCol; uniform float uScale; varying vec4 vC;\nvoid main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * uScale / max(0.2, -mv.z), 1.0, 700.0); vC = aCol; }',
+          fragmentShader: 'uniform sampler2D map; varying vec4 vC;\nvoid main() { float a = texture2D(map, gl_PointCoord).a * vC.a; if (a < 0.004) discard; gl_FragColor = vec4(vC.rgb, a); }'
+        });
+        this.points = new THREE.Points(g, this.mat); this.points.frustumCulled = false; this.points.renderOrder = additive ? 11 : 10; scene.add(this.points);
+      }
+      add(x, y, z, vx, vy, vz, life, s0, s1, c0, c1, a0, drag = 1.2, buoy = 0, grav = 0) {
+        if (this.n >= this.max) return;
+        const d = this.d, o = this.n++ * FXS;
+        d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = vx; d[o + 4] = vy; d[o + 5] = vz; d[o + 6] = life; d[o + 7] = life; d[o + 8] = s0; d[o + 9] = s1;
+        d[o + 10] = c0[0]; d[o + 11] = c0[1]; d[o + 12] = c0[2]; d[o + 13] = c1[0]; d[o + 14] = c1[1]; d[o + 15] = c1[2]; d[o + 16] = a0; d[o + 17] = drag; d[o + 18] = buoy; d[o + 19] = grav;
+      }
+      update(dt) {
+        const d = this.d, wx = windNow.x, wz = windNow.z;
+        for (let i = this.n - 1; i >= 0; i--) {
+          const o = i * FXS;
+          if ((d[o + 6] -= dt) <= 0) { const l = --this.n * FXS; if (l !== o) d.copyWithin(o, l, l + FXS); continue; }
+          const k = 1 - d[o + 6] / d[o + 7], dr = Math.max(0, 1 - d[o + 17] * dt);
+          d[o + 3] = d[o + 3] * dr + wx * 0.25 * dt; d[o + 5] = d[o + 5] * dr + wz * 0.25 * dt; d[o + 4] = d[o + 4] * dr + (d[o + 18] - d[o + 19]) * dt;
+          d[o] += d[o + 3] * dt; d[o + 1] += d[o + 4] * dt; d[o + 2] += d[o + 5] * dt;
+        }
+        const n = this.n;
+        for (let i = 0; i < n; i++) {
+          const o = i * FXS, k = 1 - d[o + 6] / d[o + 7], a = d[o + 16] * Math.min(1, k * 9) * Math.pow(1 - k, 1.25);
+          this.pos[i * 3] = d[o]; this.pos[i * 3 + 1] = d[o + 1]; this.pos[i * 3 + 2] = d[o + 2];
+          this.size[i] = d[o + 8] + (d[o + 9] - d[o + 8]) * k;
+          this.col[i * 4] = d[o + 10] + (d[o + 13] - d[o + 10]) * k; this.col[i * 4 + 1] = d[o + 11] + (d[o + 14] - d[o + 11]) * k; this.col[i * 4 + 2] = d[o + 12] + (d[o + 15] - d[o + 12]) * k; this.col[i * 4 + 3] = a;
+        }
+        this.geo.setDrawRange(0, n); this.aPos.needsUpdate = this.aSize.needsUpdate = this.aCol.needsUpdate = true;
+      }
+      clear() { this.n = 0; this.geo.setDrawRange(0, 0); }
+    }
+    const FXG = { ready: false, smoke: null, fire: null, tex: null };
+    function fxInit() {
+      if (FXG.ready) return;
+      const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+      const gr = g.createRadialGradient(32, 32, 1, 32, 32, 31); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,255,255,.8)'); gr.addColorStop(0.65, 'rgba(255,255,255,.28)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      for (let i = 0; i < 26; i++) { const x = 32 + (Math.random() - 0.5) * 30, y = 32 + (Math.random() - 0.5) * 30, r = 4 + Math.random() * 9; const q = g.createRadialGradient(x, y, 0, x, y, r); q.addColorStop(0, 'rgba(255,255,255,.22)'); q.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = q; g.fillRect(x - r, y - r, 2 * r, 2 * r); }   // grumeaux : bords moins parfaits
+      FXG.tex = new THREE.CanvasTexture(c); FXG.tex.encoding = THREE.LinearEncoding;
+      const k = GFX.id === 'low' ? 0.5 : 1;
+      FXG.smoke = new FxPool(Math.round(1500 * k), false); FXG.fire = new FxPool(Math.round(800 * k), true); FXG.ready = true;
+    }
+    function fxUpdate(dt) {
+      if (!FXG.ready) return;
+      const u = renderer.domElement.height * 0.5 / Math.tan(camera.fov * Math.PI / 360);
+      FXG.smoke.mat.uniforms.uScale.value = FXG.fire.mat.uniforms.uScale.value = u;
+      if (dt > 0) { FXG.smoke.update(dt); FXG.fire.update(dt); }
+    }
+    const CRASHFX = { active: false, fireSnd: 0 };
+    const WRK = { v: new THREE.Vector3(), w: new THREE.Vector3(), n: new THREE.Vector3(0, 1, 0), pieces: [], restore: [], mats: [], clones: [], hidden: [], scorch: null, ring: null, mats3: null,
+      impacted: false, impactAt: 0, rest: false, water: false, sunk: false, t: 0, tImp: 0, fire: 0, smokeK: 1, acc: [0, 0, 0], shake: 0, camT: 0, camAng: 0, camR0: 30, splash: false, slideT: 0, prevCam: null, hits: 0 };
+    const _wq = new THREE.Quaternion(), _wv = new THREE.Vector3(), _wg = [0, 0], _wn = new THREE.Vector3(), _wi = new THREE.Vector3(), _ws = new THREE.Vector3();
+    const SHARD_GEO = new THREE.BoxGeometry(1, 0.05, 1), WS_COL = { smoke0: [0.05, 0.045, 0.045], smoke1: [0.3, 0.3, 0.31], dust0: [0.5, 0.45, 0.36], dust1: [0.62, 0.6, 0.56], fire0: [1, 0.72, 0.32], fire1: [0.85, 0.22, 0.04], spark0: [1, 0.9, 0.6], spark1: [1, 0.4, 0.1], spray0: [0.85, 0.92, 0.97], spray1: [0.8, 0.88, 0.95] };
+    // Point au hasard sur la cellule de l'épave (moteurs, saumons, fuselage) pour les foyers d'incendie
+    function wreckPoint(out) {
+      const L = AC.look, wide = Math.random() < 0.55;
+      out.set((Math.random() - 0.5) * (wide ? L.span * 0.7 : 1.6), Math.random() * 1.2, (Math.random() - 0.5) * L.len * 0.8).applyQuaternion(plane.quaternion).add(plane.position);
+      return out;
+    }
+    // Aplatit les matériaux de l'avion en versions « calcinées » (clones : les matériaux d'origine sont partagés avec le modèle)
+    function charPlane() {
+      const seen = new Map();
+      plane.traverse(o => {
+        if (o.isPoints) { WRK.hidden.push([o, o.visible]); o.visible = false; return; }
+        if (!o.isMesh) return;
+        const conv = m => {
+          if (!m || m.blending === THREE.AdditiveBlending) return m;
+          if (seen.has(m)) return seen.get(m);
+          const k = m.clone(); if (k.color) k.color.multiplyScalar(0.34); if (k.roughness !== undefined) k.roughness = Math.min(1, k.roughness + 0.3);
+          WRK.clones.push(k); seen.set(m, k); return k;
+        };
+        WRK.mats.push([o, o.material]);
+        o.material = Array.isArray(o.material) ? o.material.map(conv) : conv(o.material);
+      });
+      const P = plane.userData.parts;
+      for (const f of P.flames) { WRK.hidden.push([f, f.visible]); f.visible = false; }
+      for (const dsc of P.discs) { WRK.hidden.push([dsc, dsc.visible]); dsc.visible = false; }
+    }
+    function shedParts(all) {
+      const P = plane.userData.parts; plane.updateMatrixWorld(true);
+      const list = [...P.ail.map(a => a.piv), P.elev, P.rud, P.rud2, ...P.props, ...P.gear, ...P.flaps].filter(Boolean);
+      for (const o of list) {
+        if (!all && Math.random() < 0.4) continue;
+        WRK.restore.push({ o, parent: o.parent, pos: o.position.clone(), quat: o.quaternion.clone(), scl: o.scale.clone(), vis: o.visible });
+        scene.attach(o);
+        const a = rnd(2, 6) * (all ? 1.5 : 1);
+        WRK.pieces.push({ o, v: new THREE.Vector3(WRK.v.x * 0.8 + rnd(-1, 1) * a, rnd(1, 0.6 * a + 2), WRK.v.z * 0.8 + rnd(-1, 1) * a).add(_wv.copy(WRK.v).multiplyScalar(0.1)),
+          w: new THREE.Vector3(rnd(-6, 6), rnd(-6, 6), rnd(-6, 6)), r: 0.35, rest: false, burn: Math.random() < 0.55 ? 6 + Math.random() * 4 : 0, shard: false });
+      }
+    }
+    function spawnShards(n) {
+      const L = AC.look, mats = WRK.mats3 || (WRK.mats3 = [
+        new THREE.MeshStandardMaterial({ color: new THREE.Color(L.body).multiplyScalar(0.8), roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide }),
+        new THREE.MeshStandardMaterial({ color: new THREE.Color(L.wing).multiplyScalar(0.7), roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide }),
+        new THREE.MeshStandardMaterial({ color: 0x1b1a19, roughness: 0.9, metalness: 0.2, side: THREE.DoubleSide })]);
+      for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(SHARD_GEO, mats[Math.random() < 0.35 ? 0 : Math.random() < 0.5 ? 1 : 2]); m.castShadow = true;
+        const s = rnd(0.35, 2.2); m.scale.set(s, 1, s * rnd(0.3, 1)); wreckPoint(m.position); m.rotation.set(rnd(0, 6.28), rnd(0, 6.28), rnd(0, 6.28)); scene.add(m);
+        const a = rnd(3, 16);
+        WRK.pieces.push({ o: m, v: new THREE.Vector3(WRK.v.x * 0.7 + rnd(-1, 1) * a, rnd(2, 12), WRK.v.z * 0.7 + rnd(-1, 1) * a), w: new THREE.Vector3(rnd(-9, 9), rnd(-9, 9), rnd(-9, 9)), r: 0.05, rest: false, burn: Math.random() < 0.3 ? 4 : 0, shard: true });
+      }
+    }
+    // ── Effets ponctuels
+    function fxDust(p, n, k, up = 0.4) {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * 6.283, sp = rnd(2, 9) * k + 2;
+        FXG.smoke.add(p.x + rnd(-1, 1), p.y + 0.4, p.z + rnd(-1, 1), Math.cos(a) * sp, rnd(0.5, 3) * (0.4 + up), Math.sin(a) * sp, rnd(2.5, 5.5), rnd(2, 4), rnd(9, 15) * (0.6 + k * 0.5), WS_COL.dust0, WS_COL.dust1, 0.5, 1.7, 0.6);
+      }
+    }
+    function fxSparks(p, v, n, k = 1) {
+      for (let i = 0; i < n; i++) FXG.fire.add(p.x, p.y + 0.3, p.z, v.x * 0.3 + rnd(-1, 1) * 9 * k, rnd(1, 9) * k, v.z * 0.3 + rnd(-1, 1) * 9 * k, rnd(0.4, 1.3), 0.35, 0.1, WS_COL.spark0, WS_COL.spark1, 1, 0.2, 0, 9.8);
+    }
+    function fxFireball(p, nrm, sc) {
+      const F = FXG.fire, M = FXG.smoke;
+      F.add(p.x, p.y + 1.5, p.z, 0, 1, 0, 0.3, 8 + 10 * sc, 26 + 22 * sc, [1, 0.9, 0.65], [1, 0.55, 0.2], 0.28, 0, 0);               // éclair
+      for (let i = 0; i < 70 + 90 * sc; i++) {
+        _wv.set(rnd(-1, 1), rnd(-0.1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(3, 16) * (0.5 + sc)).addScaledVector(nrm, rnd(2, 12));
+        F.add(p.x + rnd(-2, 2), p.y + rnd(0, 2), p.z + rnd(-2, 2), _wv.x, _wv.y, _wv.z, rnd(0.7, 1.7), 3.5 + 4 * sc, 12 + 9 * sc, WS_COL.fire0, WS_COL.fire1, 0.2, 1.1, 2.4);
+      }
+      for (let i = 0; i < 45 + 40 * sc; i++) M.add(p.x + rnd(-3, 3), p.y + rnd(1, 4), p.z + rnd(-3, 3), rnd(-5, 5), rnd(5, 14), rnd(-5, 5), rnd(7, 15), 4, 22 + 16 * sc, WS_COL.smoke0, WS_COL.smoke1, 0.88, 0.5, 2.4);
+      fxSparks(p, WRK.v, 40 * sc + 12, 1.3);
+      if (!WRK.ring) {
+        WRK.ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
+        WRK.ring.rotation.x = -Math.PI / 2; WRK.ring.visible = false; scene.add(WRK.ring);
+      }
+      WRK.ring.visible = true; WRK.ring.position.set(p.x, p.y + 0.3, p.z); WRK.ring.userData = { t: 0, max: 30 + 40 * sc };
+    }
+    function fxSplash(p, k, n = 70) {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * 6.283, sp = rnd(1, 7) * k;
+        FXG.smoke.add(p.x, SEA + 0.3, p.z, Math.cos(a) * sp, rnd(8, 22) * (0.5 + k * 0.4), Math.sin(a) * sp, rnd(1.2, 2.6), 1.6, 5 + 5 * k, WS_COL.spray0, WS_COL.spray1, 0.8, 0.5, 0, 14);
+      }
+    }
+    function makeScorch(p, n, sc) {
+      if (WRK.scorch) { scene.remove(WRK.scorch); WRK.scorch.material.map.dispose(); WRK.scorch.material.dispose(); }
+      const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+      for (let i = 0; i < 40; i++) {
+        const a = Math.random() * 6.283, r = Math.random() * 34, x = 64 + Math.cos(a) * r, y = 64 + Math.sin(a) * r * 0.8, rr = 14 + Math.random() * 24;
+        const q = g.createRadialGradient(x, y, 0, x, y, rr); q.addColorStop(0, 'rgba(0,0,0,.35)'); q.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = q; g.fillRect(0, 0, 128, 128);
+      }
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }));
+      m.scale.setScalar(22 + 24 * sc); m.quaternion.setFromUnitVectors(_ws.set(0, 0, 1), n); m.position.copy(p).addScaledVector(n, 0.18); m.rotateZ(Math.random() * 6.28);
+      scene.add(m); WRK.scorch = m;
+    }
+    // Premier choc contre le sol / le pont : boule de feu, poussière, étincelles, cratère noirci
+    function bigImpact(p, n, sp) {
+      WRK.impacted = true; WRK.impactAt = performance.now(); WRK.tImp = 0;
+      const sc = clamp((sp - 7) / 40, 0.05, 1.5), fuel = clamp(0.3 + S.fuel / 100, 0.35, 1);
+      WRK.shake = clamp(0.35 + sc * 0.7, 0.35, 1.2);
+      Snd.crash(sc, false);
+      fxDust(p, 24 + 40 * sc, sc); fxSparks(p, WRK.v, 20 + 30 * sc);
+      if (sc > 0.22) fxFireball(p, n, sc);
+      WRK.fire = fuel * (sc > 0.22 ? 1 : 0.5); WRK.smokeK = 1;
+      makeScorch(p, n, sc);
+      spawnShards(Math.round(5 + 14 * sc));
+    }
+    // ── Démarrage du crash
+    function crashStart() {
+      fxInit(); crashClear();
+      const sp = S.vel.length(), air = !S.onGround && S.agl > 6, p = plane.position;
+      CRASHFX.active = true; Object.assign(WRK, { impacted: false, rest: false, water: false, sunk: false, splash: false, t: 0, tImp: 0, fire: 0, smokeK: 1, shake: 0, camT: 0, hits: 0, slideT: 0, tWater: 0, acc: [0, 0, 0] });
+      WRK.v.copy(S.vel).multiplyScalar(0.92); if (WRK.v.lengthSq() < 0.01) WRK.v.set(0, 0, 0);
+      const a = clamp(sp / 28, 0.2, 2.2) + (air ? 1 : 0);
+      WRK.w.set(rnd(-1, 1) * a, rnd(-0.6, 0.6) * a, rnd(-1, 1) * a + (S.bank * DEG) * 0.5);
+      WRK.prevCam = S.cam; WRK.camAng = Math.atan2(camera.position.x - p.x, camera.position.z - p.z); WRK.camR0 = clamp(camera.position.distanceTo(p), 16, 40);
+      plane.visible = true; charPlane(); shedParts(air || sp > 25);
+      if (air) {                                                    // rupture en vol : l'épave tombe en brûlant, l'explosion viendra à l'impact
+        WRK.fire = 0.85; spawnShards(12); fxSparks(p, WRK.v, 30, 1.2);
+        FXG.fire.add(p.x, p.y + 1, p.z, 0, 1, 0, 0.35, 8, 22, [1, 0.95, 0.75], [1, 0.6, 0.2], 0.45, 0, 0);
+        Snd.explosion(0.35); for (let i = 0; i < 6; i++) Snd.burst({ buf: 'white', type: 'bandpass', f: 500 + Math.random() * 2000, q: 3, vol: 0.25, d: 0.12, delay: i * 0.07 });
+      } else {
+        const sf = surfaceAt(p.x, p.z); WRK.n.set(0, 1, 0);
+        if (sf.water) { WRK.water = true; WRK.splash = true; fxSplash(p, clamp(sp / 25, 0.5, 1.6)); Snd.crash(clamp(sp / 30, 0.3, 1), true); WRK.impacted = true; WRK.impactAt = performance.now(); WRK.fire = 0; }
+        else { p.y = Math.max(p.y, sf.y + 0.9); bigImpact(p.clone().setY(sf.y), WRK.n, Math.max(sp, 8)); }
+      }
+    }
+    // ── Corps rigide de l'épave et des débris (appelé par pas ≤ 1/60 s)
+    function groundNormal(x, z, out) {
+      terrainGrad(x, z, _wg); return out.set(-_wg[0], 1, -_wg[1]).normalize();
+    }
+    function wreckStep(h) {
+      const p = plane.position, wl = WRK.w.length();
+      WRK.t += h; if (WRK.impacted) WRK.tImp += h;
+      if (WRK.sunk) return;
+      if (!WRK.rest) {
+        WRK.v.y -= 9.8 * h; WRK.v.multiplyScalar(1 - 0.02 * h); p.addScaledVector(WRK.v, h);
+        if (wl > 1e-4) { _wq.setFromAxisAngle(_wv.copy(WRK.w).divideScalar(wl), wl * h); plane.quaternion.premultiply(_wq).normalize(); }
+        const sf = surfaceAt(p.x, p.z), gy = sf.y + 0.9;
+        if (sf.water && !sf.deck) {
+          if (p.y < sf.y + 0.2) {
+            if (!WRK.splash) { WRK.splash = true; WRK.water = true; WRK.fire = 0; const sp = WRK.v.length(); fxSplash(p, clamp(sp / 25, 0.5, 1.6)); Snd.crash(clamp(sp / 30, 0.3, 1), true); WRK.shake = 0.5; if (!WRK.impacted) { WRK.impacted = true; WRK.impactAt = performance.now(); } }
+            const fl = WRK.t - (WRK.tWater || (WRK.tWater = WRK.t)) < 3;
+            WRK.v.x *= Math.exp(-1.6 * h); WRK.v.z *= Math.exp(-1.6 * h); WRK.v.y += (fl ? 11 : 1) * h * (p.y < sf.y ? 1 : 0.2); WRK.v.y *= Math.exp(-1.2 * h); WRK.w.multiplyScalar(Math.exp(-1.5 * h));
+            if (p.y < sf.y - 7) { plane.visible = false; WRK.sunk = true; WRK.rest = true; }
+          }
+        } else if (p.y < gy) {
+          const n = sf.deck ? WRK.n.set(0, 1, 0) : groundNormal(p.x, p.z, WRK.n), vn = WRK.v.dot(n);
+          p.y = gy;
+          if (vn < -1.5) {                                                         // vrai impact : rebond amorti, culbute
+            const imp = -vn;
+            if (!WRK.impacted) bigImpact(_wi.copy(p).setY(sf.y), n, Math.max(imp, WRK.v.length() * 0.6));
+            else if (imp > 5) { fxDust(p, 6 + imp * 0.6, 0.6); fxSparks(p, WRK.v, 8 + imp, 0.8); Snd.crash(clamp(imp / 40, 0.05, 0.4), false); WRK.shake = Math.max(WRK.shake, 0.25); }
+            WRK.v.addScaledVector(n, -(1 + 0.2) * vn); WRK.v.multiplyScalar(0.8);
+            WRK.w.multiplyScalar(0.62).add(_wv.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(Math.min(3, imp * 0.12)));
+          } else WRK.v.addScaledVector(n, -vn);                                    // contact roulant / glissant
+          const vt = Math.hypot(WRK.v.x, WRK.v.z);                                  // frottement de glissement (8 m/s² ≈ 0,8 g)
+          if (vt > 0.001) { const k = Math.max(0, vt - 8 * h) / vt; WRK.v.x *= k; WRK.v.z *= k; }
+          WRK.w.multiplyScalar(Math.exp(-2.6 * h));
+          if (vt > 4 && WRK.impacted) {                                            // traînée d'étincelles, poussière et crissement de tôle
+            WRK.slideT -= h;
+            if (WRK.slideT <= 0) { WRK.slideT = 0.05; fxSparks(p, WRK.v, 2 + Math.floor(vt / 12), 0.6); if (Math.random() < 0.7) fxDust(p, 1, 0.3); Snd.scrape(clamp(vt / 40, 0.2, 1)); }
+          }
+          if (WRK.v.length() < 0.45 && WRK.w.length() < 0.25) { WRK.v.set(0, 0, 0); WRK.w.set(0, 0, 0); WRK.rest = true; }
+        }
+      }
+    }
+    function debrisStep(h) {
+      for (const d of WRK.pieces) {
+        if (d.rest || !d.o.visible) continue;
+        d.v.y -= 9.8 * h; d.o.position.addScaledVector(d.v, h);
+        const wl = d.w.length(); if (wl > 1e-4) { _wq.setFromAxisAngle(_wv.copy(d.w).divideScalar(wl), wl * h); d.o.quaternion.premultiply(_wq).normalize(); }
+        const sf = surfaceAt(d.o.position.x, d.o.position.z), gy = sf.y + d.r;
+        if (sf.water && !sf.deck) { if (d.o.position.y < sf.y) { d.v.multiplyScalar(Math.exp(-3 * h)); d.v.y = Math.min(d.v.y, -0.8); d.w.multiplyScalar(0.9); if (d.o.position.y < sf.y - 3) d.o.visible = false; if (!d.splashed) { d.splashed = true; fxSplash(d.o.position, 0.3, 8); } } }
+        else if (d.o.position.y < gy) {
+          d.o.position.y = gy;
+          if (d.v.y < -2.5) { d.v.y *= -0.3; d.v.x *= 0.7; d.v.z *= 0.7; d.w.multiplyScalar(0.6); if (!d.shard && Math.random() < 0.6) Snd.burst({ buf: 'white', type: 'bandpass', f: 900 + Math.random() * 1500, q: 2.5, vol: 0.1, d: 0.1 }); }
+          else { d.v.y = 0; const k = Math.max(0, Math.hypot(d.v.x, d.v.z) - 7 * h) / (Math.hypot(d.v.x, d.v.z) || 1); d.v.x *= k; d.v.z *= k; d.w.multiplyScalar(Math.exp(-4 * h)); if (d.v.lengthSq() < 0.04) { d.rest = true; d.v.set(0, 0, 0); } }
+        }
+        if (d.burn > 0) {                                                               // débris en feu : petite fumée et flammèches
+          d.burn -= h; WRK.acc[2] += h * 14;
+          while (WRK.acc[2] >= 1) { WRK.acc[2]--; const q = d.o.position; FXG.smoke.add(q.x, q.y, q.z, rnd(-0.5, 0.5), rnd(0.5, 1.5), rnd(-0.5, 0.5), rnd(1.5, 3), 0.8, 4, WS_COL.smoke0, WS_COL.smoke1, 0.55, 0.6, 1.2); if (Math.random() < 0.5) FXG.fire.add(q.x, q.y, q.z, rnd(-0.4, 0.4), rnd(0.5, 1.5), rnd(-0.4, 0.4), rnd(0.3, 0.6), 0.9, 0.3, WS_COL.fire0, WS_COL.fire1, 0.9, 1, 3); }
+        }
+      }
+    }
+    // Incendie de l'épave : foyers sur la cellule, fumée noire puis grise, intensité selon le temps depuis l'impact
+    function emitFire(dt) {
+      const age = WRK.impacted ? WRK.tImp : 0, level = WRK.fire * (age < 25 ? 1 : clamp(1 - (age - 25) / 55, 0, 1)), smokeLv = WRK.fire > 0 ? Math.max(level, WRK.smokeK * clamp(1 - Math.max(0, age - 20) / 130, 0, 1) * 0.35) : (WRK.water ? clamp(1 - WRK.tImp / 8, 0, 1) * 0.4 : 0);
+      CRASHFX.fireSnd = WRK.water ? 0 : level * (WRK.impacted ? 1 : 0.6);
+      if (WRK.sunk) return;
+      if (level > 0.02) {
+        WRK.acc[0] += dt * 45 * level;
+        while (WRK.acc[0] >= 1) { WRK.acc[0]--; wreckPoint(_wv); FXG.fire.add(_wv.x, _wv.y, _wv.z, rnd(-1.5, 1.5) + WRK.v.x * 0.3, rnd(1, 3) + WRK.v.y * 0.2, rnd(-1.5, 1.5) + WRK.v.z * 0.3, rnd(0.5, 1.2), rnd(1.6, 2.8), rnd(0.5, 1), WS_COL.fire0, WS_COL.fire1, 0.9, 1.2, 4); }
+      }
+      if (smokeLv > 0.02) {
+        WRK.acc[1] += dt * 30 * smokeLv;
+        while (WRK.acc[1] >= 1) { WRK.acc[1]--; wreckPoint(_wv); const dark = level > 0.1; FXG.smoke.add(_wv.x, _wv.y + 0.5, _wv.z, rnd(-1, 1) + WRK.v.x * 0.2, rnd(2, 5), rnd(-1, 1) + WRK.v.z * 0.2, rnd(6, 13), 2.2, rnd(12, 24), dark ? WS_COL.smoke0 : [0.2, 0.2, 0.21], WS_COL.smoke1, dark ? 0.8 : 0.5, 0.7, 2.1); }
+      }
+      const r = WRK.ring;
+      if (r && r.visible) { const u = r.userData; u.t += dt; const k = u.t / 0.75; if (k >= 1) r.visible = false; else { r.scale.setScalar(2 + u.max * k); r.material.opacity = 0.6 * (1 - k) * (1 - k); } }
+    }
+    function crashTick(dt) {
+      if (!CRASHFX.active) return;
+      let left = Math.min(dt, 0.1);
+      while (left > 1e-4) { const h = Math.min(left, 1 / 60); wreckStep(h); debrisStep(h); left -= h; }
+      emitFire(Math.min(dt, 0.1)); WRK.shake *= Math.exp(-dt * 3.5);
+    }
+    // Caméra de crash : orbite lente autour de l'épave, qui s'éloigne ; secousse à l'impact
+    function crashCam(dt) {
+      const p = plane.position; WRK.camT += dt; WRK.camAng += dt * 0.11;
+      if (camera.near !== 0.5) { camera.near = 0.5; camera.updateProjectionMatrix(); }
+      const r = clamp(WRK.camR0 + WRK.camT * 1.6, 18, 64), hgt = 6 + Math.min(11, WRK.camT * 0.9);
+      cAim.set(p.x + Math.sin(WRK.camAng) * r, p.y + hgt, p.z + Math.cos(WRK.camAng) * r);
+      camera.position.lerp(cAim, snapCamera ? 1 : 1 - Math.exp(-dt * 1.7)); camFloor(camera.position);
+      camera.up.set(0, 1, 0); camera.lookAt(cLook.set(p.x, p.y + 1.5, p.z));
+      if (WRK.shake > 0.01) { const k = WRK.shake * 0.55; camera.rotateX(rnd(-k, k) * 0.04); camera.rotateY(rnd(-k, k) * 0.04); camera.position.y += rnd(-k, k) * 0.4; }
+      setFov(55, dt, snapCamera);
+    }
+    // Explosion à distance (crash d'un autre pilote)
+    function crashRemote(p) {
+      fxInit(); const d = camera.position.distanceTo(p), sc = 0.9;
+      fxFireball(p, _wn.set(0, 1, 0), sc); fxDust(p, 30, sc);
+      Snd.crash(clamp(1.2 / (1 + d / 500), 0.05, 1), false);
+    }
+    // Remise à zéro : pièces et matériaux d'origine, effets effacés (appelé à chaque pose sur un aéroport et changement d'avion)
+    function crashClear() {
+      if (!CRASHFX.active && !WRK.pieces.length && !WRK.restore.length) return;
+      CRASHFX.active = false; CRASHFX.fireSnd = 0;
+      for (const d of WRK.pieces) if (d.shard) { scene.remove(d.o); } else if (d.o.parent === scene) scene.remove(d.o);
+      for (const r of WRK.restore) { if (r.o.parent) r.o.parent.remove(r.o); r.parent.add(r.o); r.o.position.copy(r.pos); r.o.quaternion.copy(r.quat); r.o.scale.copy(r.scl); r.o.visible = r.vis; }
+      for (const [o, m] of WRK.mats) o.material = m;
+      for (const [o, v] of WRK.hidden) o.visible = v;
+      for (const k of WRK.clones) k.dispose();
+      if (WRK.mats3) { for (const m of WRK.mats3) m.dispose(); WRK.mats3 = null; }
+      if (WRK.scorch) { scene.remove(WRK.scorch); WRK.scorch.material.map.dispose(); WRK.scorch.material.dispose(); WRK.scorch = null; }
+      if (WRK.ring) WRK.ring.visible = false;
+      WRK.pieces.length = WRK.restore.length = WRK.mats.length = WRK.clones.length = WRK.hidden.length = 0;
+      if (FXG.ready) { FXG.smoke.clear(); FXG.fire.clear(); }
+      if (WRK.prevCam != null) { WRK.prevCam = null; snapCamera = true; }
+      plane.visible = true;
     }
 
     // ════════════════════════ Navigation ════════════════════════
@@ -5506,6 +6060,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
     function updateCamera(dt) {
       const k = snapCamera ? 1 : 1 - Math.exp(-dt * 6);
       updateLook(dt);
+      if (S.crashed && CRASHFX.active) { crashCam(dt); snapCamera = false; return; }   // crash : caméra orbitale autour de l'épave
       const nr = S.cam === 1 ? 0.08 : 0.5;                          // vue cockpit : tableau de bord à quelques dizaines de cm
       if (camera.near !== nr) { camera.near = nr; camera.updateProjectionMatrix(); }
       const pil = plane.userData.parts && plane.userData.parts.pilot;
@@ -5926,7 +6481,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       closeAllModals(); $(id).classList.add('open'); refreshPause();
       if (id === 'mapModal') requestAnimationFrame(() => { resizeMap(); renderPlan(); });
       if (id === 'recModal') renderRecords();
-      if (id === 'acModal') { renderAircraft(); renderWeather(); renderGfx(); renderCtl(); }
+      if (id === 'acModal') { renderAircraft(); renderWeather(); renderGfx(); renderAudio(); renderCtl(); }
     }
     function toggleModal(id) { if ($(id).classList.contains('open')) closeAllModals(); else openModal(id); }
     function showDialog(title, html, buttons, cls = '') {
@@ -5988,6 +6543,12 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
     // Réglages manette : curseurs en %, courbe de réponse et position des sticks en direct (redessinée par pollGamepad)
     const CTL_UI = { open: false, cv: null };
     const CTL_AXES = [['p', 'Tangage', '#5ad1ff'], ['r', 'Roulis', '#ffb547'], ['y', 'Palonnier', '#ff5ad8']];
+    function renderAudio() {
+      document.querySelectorAll('[data-aud]').forEach(i => {
+        const k = i.dataset.aud;
+        if (i.type === 'checkbox') i.checked = !!AUD[k]; else { i.value = Math.round(AUD[k] * 100); setText('audV_' + k, Math.round(AUD[k] * 100) + ' %'); }
+      });
+    }
     function renderCtl() {
       document.querySelectorAll('[data-ctl]').forEach(i => {
         const k = i.dataset.ctl; i.value = Math.round(CTL[k] * 100); setText('ctlV_' + k, Math.round(CTL[k] * 100) + ' %');
@@ -6121,6 +6682,11 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       $('wxTurb').oninput = e => setWx({ turb: +e.target.value / 100 });
       $('gfxTiers').onclick = e => { const k = e.target.dataset.gfx; if (k) setGfx(k); };
       $('ctlBox').oninput = e => { const k = e.target.dataset.ctl; if (k) setCtl(k, +e.target.value / 100); };
+      $('audBox').oninput = e => {
+        const k = e.target.dataset.aud; if (!k) return;
+        AUD[k] = e.target.type === 'checkbox' ? e.target.checked : clamp(+e.target.value / 100, 0, 1);
+        persist(); renderAudio(); if (window.SKYWAY_RADIO) SKYWAY_RADIO.settingsChanged();
+      };
       $('ctlReset').onclick = () => { Object.assign(CTL, CTL_DEF); persist(); renderCtl(); toast('Réglages manette par défaut', 'info'); };
       $('gfxDyn').onchange = e => {
         DB.settings.dynRes = e.target.checked; persist();
@@ -6880,6 +7446,10 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       const raw = clock.getDelta(), dt = Math.min(raw, 0.1);
       pollGamepad();
       updateDynRes(raw);
+      if (CRASHFX.active && !S.userPaused && !S.adPaused && !portraitBlocked()) {   // l'épave et l'incendie continuent derrière le panneau « Crash »
+        crashTick(dt); physPrevPos.copy(plane.position); physPrevQuat.copy(plane.quaternion); physAcc = 0;
+      }
+      fxUpdate(S.userPaused || S.adPaused ? 0 : dt);
       if (!S.paused) {
         if (RP.active) {                                     // rejeu : la pose vient de l'enregistrement, pas de la physique
           simT += dt; replayUpdate(dt);
