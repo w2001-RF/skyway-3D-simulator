@@ -1656,6 +1656,10 @@
       top: 150px
     }
 
+    body.touch #cbBanner {
+      top: 150px
+    }
+
     body.touch.tut #cbBanner {
       top: 290px
     }
@@ -6715,7 +6719,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       const tu = TC.tu = clamp(Math.min(W, H) * 0.12, 30, 66) * TC.cfg.scale;
       pad.style.setProperty('--tu', tu + 'px'); pad.style.setProperty('--op', TC.cfg.op);
       // HUD : 1 sur grand écran, réduit sur téléphone (texte encore lisible : ≥ 0,58)
-      document.body.style.setProperty('--hud', clamp(Math.min(innerWidth / 1180, innerHeight / 700), 0.58, 1).toFixed(3));
+      document.body.style.setProperty('--hud', clamp(Math.min(innerWidth / 1300, innerHeight / 700), 0.58, 1).toFixed(3));
       const m = tu * 0.12;
       for (const d of TC_DEF) {
         const q = TC.cfg.pos[d.id] || {}, sc = q.s || 1, w = (d.w || 1) * tu * sc, h = (d.h || 1) * tu * sc;
@@ -9684,7 +9688,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
   <script>
     (() => {
       // Identifiant éditeur AdSense (« ca-pub-» + 16 chiffres, AdSense › Compte › Informations). Vide = aucune publicité.
-      const ADSENSE_CLIENT = '';
+      const ADSENSE_CLIENT = 'ca-pub-3344053538816400';
       const MIN_PLAY = 150;                     // secondes de jeu (hors pause) avant une nouvelle pause publicitaire
       const q = new URLSearchParams(location.search);
       // Application mobile (react-native-webview) : l'appli définit window.SKYWAY_APP avant le chargement ; ?app=1 pour tester
