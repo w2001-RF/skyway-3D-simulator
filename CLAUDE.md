@@ -8,13 +8,14 @@ It started as a 3D truck/car scene and grew into:
 - Missions hub (J): pilot school (7 guided lessons), civil transport contracts (freight and passengers), combat campaign.
 - Keyboard, touch/tilt and gamepad controls.
 - Combat campaign: 9 missions in two series (air superiority, ground attack), enemy AI, guns/missiles/bombs/flares, scoring and stars.
-- Online mode (U): one peer-to-peer session of up to 8 pilots, with no game server (WebRTC; discovery through public WebTorrent trackers).
+- Online mode (U): one peer-to-peer session of up to 8 pilots, with no game server (WebRTC; discovery through public WebTorrent trackers), with voice chat between the pilots.
+- Sound: synthesized engines (piston, fan, jet), wind, rolling, gear and crash sounds; a simulated control tower you talk to by radio (key 0, speech synthesis); animated crashes (§8).
 - Hosted on GitHub Pages (`https://w2001-rf.github.io/skyway-3D-simulator/`) with SEO pages (guide, privacy), Google AdSense ad breaks, and an Expo / React Native app in `mobile/` that wraps the hosted game (see §9d).
 
 Constraints the user set:
 - Single HTML file, no downloaded assets.
 - Three.js r128 from `https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js`.
-- All textures procedural (canvas). Sounds are Web Audio oscillators.
+- All textures procedural (canvas). All sounds are synthesized with Web Audio (no audio files); the tower voices use the browser's speech synthesis.
 - Other external resources:
   - Google Fonts (JetBrains Mono, Rajdhani), with fallbacks.
   - Trystero (`@trystero-p2p/torrent@0.25.4`, ESM from jsDelivr), loaded with a dynamic `import()` only when the player first clicks « Rejoindre » in the online window.
@@ -30,7 +31,8 @@ The game is one file: `index.html`.
    - Must load AFTER the main script.
 4. **Online extension**: `<style>`, `#olModal`, `<script>` IIFE (see §9b). It loads after the combat extension and wraps the already-wrapped functions.
 5. **School & transport extension**: `<style>`, `#msModal`, `#tutPanel`, `#ctPanel`, `<script>` IIFE (see §9c). It uses `window.SKYWAY_COMBAT` (API exported by the combat extension).
-6. **Platform extension**, last before `</body>`: `<script>` IIFE for web ads and the mobile-app bridge (see §9d). It wraps on top of everything else.
+6. **Radio extension** (control tower ↔ pilot, §9e). Loads before the platform extension; wraps `onTouchdown`.
+7. **Platform extension**, last before `</body>`: `<script>` IIFE for web ads and the mobile-app bridge (see §9d). It wraps on top of everything else.
 
 Site files next to `index.html` (static, served by GitHub Pages; the game never loads them at runtime):
 - `guide.html` (French player guide: features, aircraft, maps, controls, ILS/PAPI, missions, FAQ with `FAQPage` JSON-LD, two AdSense display slots) and `privacy.html` (privacy policy required by AdSense, AdMob and the app stores).
@@ -301,6 +303,7 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - **Windows:** M/P map & flight plan, L records, T aircraft & weather.
 - **Camera look (GTA-style):** drag on the 3D view (left/right button or one finger) to orbit, wheel to zoom, double-click to recentre; it auto-recentres 1.5 s after release. Hold O or the middle mouse button for the rear view. Applies to Poursuite, Cockpit (head look) and Latérale; Cinéma ignores it. State: `LOOK` (`lookState`, `updateLook`, `initMouseLook`).
 - **View, sound, misc:** C camera (Poursuite/Cockpit/Latérale/Cinéma), K record trajet, N sound, I invert pitch, H help, R restart, Esc pause / close modal.
+- **Radio:** 0 opens the tower panel (§9e). **Voice (online):** hold ² (AZERTY) / ` (QWERTY), `e.code === 'Backquote'`, to talk (§9b); on touch the « Parler » control sets `keys.ptt`.
 - **Missions:** J opens the Missions hub (school, transport, combat tabs; the top-bar button is « Missions »).
 - **Combat:** F gun (hold), V missile, Space or Enter in the air = bomb (edge-triggered in `combatUpdate`, so the gamepad A button works too), B flares, Tab next target, Shift + full throttle afterburner.
 - **Online:** U opens the online window (also a « En ligne » button in the top bar, which shows the number of connected pilots).
@@ -384,6 +387,21 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - `webglcontextlost` is `preventDefault`ed; `webglcontextrestored` reloads the page.
 - UI: the "Graphismes" block in the T window (`renderGfx`) shows tier buttons, the dynamic-resolution toggle, and the GPU, shadows, MSAA, resolution and fps.
 
+**Sound (`Snd`, `EngineVoice`; all synthesized, `AUD = DB.settings.audio`)**
+- `Snd.init()` (first user gesture) builds the graph: sources → buses `bEng` (player engine, wind, rolling; goes through the cockpit / outside low-pass `Snd.lp`), `bWorld` (other pilots' engines), `bFx`, `bRadio` → master → compressor → output. `Snd.update()` runs every frame (also when paused: it fades the engine out). `Snd.level()` = RMS of the output (tests and mic meter).
+- `EngineVoice(snd, out, kind, opts)`, `kind` = `engineKind(AC)`: `piston` (firing frequency = rpm/60 × cylinders/2 through a custom `PeriodicWave`, a detuned copy for the twin beat, a sub-octave, intake noise, propeller whoosh chopped at the blade-pass frequency, combustion jitter), `fan` (Mistral: pink-noise rumble, roar, high-pitched fan whine) or `jet` (military: rumble, roar, hiss, two inharmonic turbine lines, afterburner rumble + crackle). `update(engineParams(ac, rpm, thr, {...}))` sets everything with `setTargetAtTime`. The piston voice is much quieter at idle (mix × (0.3 + 0.7·thr)): the master compressor otherwise flattens the level.
+- Player extras in `Snd.update`: Doppler from the camera velocity (cinema flyby / ground shots), distance attenuation and filtering outside the cockpit, wind (∝ speed^1.7), runway rumble and tyre noise (ground speed), brake squeal, stall buffet, gear / flap motor, gear thunk at the end of travel, afterburner thump. `Snd.touchdown(vs)` (from `onTouchdown`), `Snd.crash(power, water)`, `Snd.explosion`, `Snd.scrape`, `Snd.thunk`, `Snd.burst({...})` (filtered noise envelope, base of the one-shots), `Snd.tone`, `Snd.beep`, `Snd.squelch` / `Snd.babble` (radio).
+- Other pilots' engines (`Snd.remote(key, ac, thr, dist, approach)`, called by the online extension for the 3 nearest): one `EngineVoice` each, removed when not refreshed in a frame.
+- Settings (T window, « Audio »): general, engine & effects, radio, pilots' voices, tower voice on / off, subtitles on / off. N mutes everything (`DB.settings.sound`).
+
+**Crash (`crashStart`, `crashTick`, `crashCam`, `crashClear`, `WRK`, `CRASHFX`, `FXG`)**
+- `crash()` calls `crashStart()` (wrapped in try / catch: a graphics failure still shows the dialog). The plane stays visible as a rigid wreck (`wreckStep`, ≤ 1/60 s steps from `crashTick` in `animate`, **independent of `S.paused`** so the animation continues behind the « Crash » dialog; `userPaused` / ad pause stop it): impact velocity kept, gravity, bounces (restitution 0.2), sliding friction 8 m/s², tumbling, terrain normal from `terrainGrad`, deck, water (splash, floats 3 s then sinks, no fire).
+- `charPlane()` swaps all materials of the model for charred clones (the originals are shared with the template, never edit them) and hides Points / flames; `shedParts()` detaches ailerons, elevator, rudders, props, gear and flaps (`scene.attach`) as ballistic debris; `spawnShards()` adds panel shards in livery colours. `crashClear()` restores everything (parts back to their parents, original materials, hidden objects) and is called by `placeAtAirport` and `setAircraft`.
+- `bigImpact()` at the first ground contact: fireball (size from impact speed), dust ring, sparks, black smoke column, shockwave ring, scorch decal, `Snd.crash`. A mid-air breakup (airborne crash: overspeed) falls burning with a smoke trail and explodes on impact. Fire level depends on remaining fuel; the wreck burns ~25 s at full strength, fades by ~80 s, smokes ~2 min; `CRASHFX.fireSnd` drives the fire crackle loop.
+- Particles: two `FxPool`s (`FXG.smoke` normal blending, `FXG.fire` additive, 1500 / 800 slots, half on Bas) = `THREE.Points` with a small shader (size in world metres, colours in display space, no tone mapping). `fxUpdate(dt)` runs every frame.
+- `crashCam`: orbit around the wreck, pulling back, with impact shake, replaces every camera mode while `S.crashed && CRASHFX.active`. The dialog waits for the impact + 1.8 s (7 s at most).
+- r128 has no `Quaternion.random()`; `Snd.tone` is a method (the cockpit filter is `Snd.lp`).
+
 **Cameras**
 - `chaseCam` (Poursuite): critically damped spring on the camera *offset* (so no lag at high speed), look-ahead, follows 28 % of the bank, FOV 60→82 with speed (+7 with afterburner), shake at high speed or high g.
 - `cineCam` (Cinéma): auto director cycling `SHOTS` (chase, flyby, orbit, track, front, ground) every 5–8 s.
@@ -413,7 +431,7 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 DB = {
   flights[],
   best{maxAlt, maxSpeed, longest, softest},
-  settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}, ctl{p, r, y, dead, expo, tilt}, touch{scale, op, pos{id: {x, y (screen fractions), s, hide}}}},
+  settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}, ctl{p, r, y, dead, expo, tilt}, audio{master, eng, radio, voice, tts, subs, range, mic: 'ptt'|'open'|'off'}, touch{scale, op, pos{id: {x, y (screen fractions), s, hide}}}},
   combat{unlocked, unlockedSol, best{levelId: {score, stars, time, ac}}, ac, start('base'|'carrier')},
   school{done{lessonId: {date, time}}},
   career{money, contracts, pax, kg, failed}
@@ -503,7 +521,14 @@ DB = {
 - `#olModal`: pilot name, session code, Rejoindre / Quitter / Copier le lien, tracker status (`getRelaySockets`), list of pilots (aircraft, distance, altitude or other map), chat log.
 - Opening any window pauses only the local plane.
 
-**Testing:** `window.SKYWAY_P2P_LIB`, if defined before « Rejoindre », replaces the Trystero import, so headless tests can use a mock `{joinRoom, getRelaySockets}`. A real two-browser test is possible by driving two headless Edge instances (separate `--user-data-dir`) through the DevTools protocol.
+**Voice chat (inside the online IIFE, `VC`, `window.SKYWAY_ONLINE`)**
+- The mic is one audio stream added with `room.addStream(stream)` (Trystero 0.25: `addStream(stream, {target, metadata})`, `removeStream`, `room.onPeerStream = (stream, peerId) => …`), muted (`track.enabled = false`) until talking; peers that join later get it from `onPeerJoin`. Asked once after « Rejoindre » unless `AUD.mic === 'off'`; a refusal falls back to listen-only.
+- Modes (`AUD.mic`): `ptt` (hold ² / `, the « Maintenir pour parler » button or the touch « Parler » control), `open`, `off`. State flag **16** in the `st` packet = transmitting; the UI shows `◉` next to the speaker, `#vcBadge` shows who talks.
+- Received streams play in hidden `<audio>` elements (not through Web Audio: Chrome gives silence for remote streams routed to an AudioContext without a media element). Volume = `AUD.voice`; with `AUD.range` it falls linearly to 0 at 30 km and is 0 on another map.
+- Remote engines (`Snd.remote`) and a fireball when a remote pilot's `st` flag 2 first appears (`crashRemote`).
+- Mobile app: `RECORD_AUDIO` / `NSMicrophoneUsageDescription` in `app.json`, `mediaCapturePermissionGrantType="grant"` on the WebView; `privacy.html` describes the microphone.
+
+**Testing:** `window.SKYWAY_P2P_LIB`, if defined before « Rejoindre », replaces the Trystero import, so headless tests can use a mock `{joinRoom, getRelaySockets}` (add `addStream`, `removeStream` and a stubbed `navigator.mediaDevices.getUserMedia` for the voice chat). A real two-browser test is possible by driving two headless Edge instances (separate `--user-data-dir`) through the DevTools protocol.
 
 ## 9c. School & transport extension (last IIFE)
 **Payload**: wraps `updatePlane`. Mass factor `m` = (contract mass) × (lesson mass); for non-jets it temporarily sets `AC.thrust / m`, `AC.stall · √m`, `AC.vr · √m` around the original call, then restores them. Contract mass = 1 + 0.35 × load fraction (passengers count 0.8 of the seat fraction).
@@ -523,6 +548,12 @@ DB = {
 - `#tutPanel` (top centre; `body.tut` moves `#cbBanner` down): step text, progress bar, Passer / Recommencer (R) / Quitter. A crash or a failed custom combat shows « Leçon interrompue »; success stores `DB.school.done[id]`.
 
 **Missions hub** (`#msModal`, `window.SKYWAY_MISSIONS = {open(tab), toggle, startLesson, stopLesson, acceptOffer, refreshOffers, cancelContract, offers, tut, ct, LESSONS}`): tabs École / Transport / Combat. Combat opens `#cbModal`, which gets the same tab bar. `renderRecords` is wrapped to add transport totals and school progress.
+
+## 9e. Radio extension (control tower ↔ pilot)
+- `window.SKYWAY_RADIO = {toggle, request(kind), settingsChanged, _test}`. Key **0**, top-bar « Radio » button or the touch « Radio » control open `#atcBox` (frequency from the airport id, tower name and distance): Décollage, Approche, Météo, Position, MAYDAY (disabled when not applicable: takeoff only on the ground, approach and mayday only in the air).
+- A request = the pilot's call then the tower's answer (and the pilot's read-back for clearances), built by `msg(f => …)` which produces two versions of the same sentence: text (digits, `270°`, `8 kt`) and speech (`deux sept zéro degrés`, `huit nœuds`). Content: callsign (registration spelled in NATO letters, or the military name), tower name, wind (`S.windFrom`, `S.windSpd`, gusts from `WX.gust`), active runway (`rwyOf`: from heading, position or wind), QNH (1006–1022 from the map id), cloud base (`MAP.clouds[0]`), position / heading to the airport. MAYDAY and approach set `NAV.lock` to that airport (so the nav bar and ILS point to it).
+- Automatic calls every 0.7 s (`tick`, 6 s between calls, none during combat): « décollage noté » once airborne after a takeoff clearance, landing clearance on final (ILS valid, < 5 km, < 1200 m AGL), gear reminder (retractable gear up, < 3.5 km, < 450 m), taxi-off call after the touchdown (`onTouchdown` is wrapped).
+- Speech: `speechSynthesis` with the French voices (tower voice 0, pilot voice 1 or the same one at another pitch), a queue (`R.queue`) with a 22 s safety timeout; around each transmission `Snd.squelch()` clicks and radio static (`Snd.radioOn`). Without a voice (or with `AUD.tts` off, or sound muted) subtitles still show (`#atcLog`, 16 s) and a radio babble plays when sound is on.
 
 ## 9d. Platform extension: web ads, SEO, mobile app (last IIFE)
 **SEO (in `<head>` / top of `<body>`)**: descriptive `<title>` and meta description, canonical URL, Open Graph and Twitter cards (`og-image.png`), `VideoGame` JSON-LD, icons and manifest, preconnects to the CDNs, a visually hidden `<h1>` (`.sr-only`), a `<noscript>` block, and « Guide du pilote · Confidentialité » links in the help panel (`.sitelinks`). The absolute URLs (`https://w2001-rf.github.io/skyway-3D-simulator/`) are repeated in `index.html`, `guide.html`, `privacy.html`, `sitemap.xml`, `robots.txt` and `mobile/src/config.ts`: change them all together for a custom domain.
@@ -549,6 +580,7 @@ DB = {
 - Native module ⇒ development build required (`npx expo run:android`, or EAS). `android/` and `ios/` are generated (Continuous Native Generation) and gitignored: configure through `app.json` only. Checks: `npx tsc --noEmit`, `npx expo lint`, `npx expo-doctor`, `npx expo export`.
 
 ## 10. Known caveats / gotchas
+- Audio in headless Edge: `AudioContext` runs with `--autoplay-policy=no-user-gesture-required`, so `Snd.level()` can verify that each engine type produces sound and follows the throttle. `requestAnimationFrame` does not run, so call `Snd.update()` / `crashTick` / `fxUpdate` yourself (`setInterval`). Taps on the phone controls were tested through DevTools mobile emulation; with the software renderer, stub `renderer.render` while sending touch events or they starve. Nothing here was tuned by ear: levels were only measured.
 - Terrain blocks many straight-in approaches (the survey probe measures clearance under a 3° path): on Vallée, VAL 36 is clear only within about 4.7 km (an 800 m ridge beyond), VAL 18 is cut by a 193 m hill at 2.8 km; LAC, NOR, SUD, EST and COT are clear from the south, CIM from the north; Hautes-Alpes has almost no clear straight-in approach. Place air-start lessons and scripted approaches inside the clear zone.
 - The main script resets `settings.ac` to 'sirocco' when the saved id is unknown, because jets are defined later. The extension restores the saved jet from `Store.load()`.
 - localStorage is blocked in claude.ai artifact previews. Records then live only for the session; Export works.
