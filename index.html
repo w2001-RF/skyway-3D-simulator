@@ -32,6 +32,7 @@
   <meta name="twitter:title" content="SKYWAY · Simulateur de vol 3D gratuit">
   <meta name="twitter:description" content="9 avions, 7 cartes 3D, école de pilotage, missions et multijoueur, dans le navigateur.">
   <meta name="twitter:image" content="https://w2001-rf.github.io/skyway-3D-simulator/og-image.png">
+  <meta name="google-adsense-account" content="ca-pub-3344053538816400">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1316,8 +1317,8 @@
     body.replay #pfd,
     body.replay #nav,
     body.replay #help,
-    body.replay #touchPad {
-      opacity: .35;
+    body.replay #touchPad .tc {
+      opacity: .3;
       pointer-events: none
     }
 
@@ -1325,35 +1326,348 @@
       display: flex
     }
 
+    /* Commandes tactiles : chaque commande est placée en absolu (disposition réglable, taille = --tu, unité
+       proportionnelle au petit côté de l'écran) ; le HUD est réduit par --hud (calculé dans tcLayout) */
     body.touch #touchPad {
-      display: grid;
-      grid-template-columns: repeat(2, 72px);
-      gap: 6px;
-      right: 12px;
-      bottom: 12px;
-      padding: 8px;
-      z-index: 20
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)
     }
 
-    #touchPad button {
-      height: 48px;
-      border-radius: 8px;
-      border: 1px solid var(--line2);
-      background: rgba(255, 255, 255, .06);
-      color: var(--txt);
-      font: 600 14px var(--ui);
+    #touchPad .tc {
+      position: absolute;
+      box-sizing: border-box;
+      pointer-events: auto;
       touch-action: none;
       user-select: none;
-      -webkit-user-select: none
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      opacity: var(--op, .85);
+      color: var(--txt);
+      font: 700 calc(var(--tu) * .23 * var(--s, 1)) var(--ui);
+      letter-spacing: .02em
     }
 
-    #touchPad button.down {
-      background: rgba(90, 209, 255, .3);
+    #touchPad .tc.off {
+      display: none
+    }
+
+    #touchPad .tbt {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      border-radius: calc(var(--tu) * .22);
+      border: 1px solid var(--line2);
+      background: rgba(8, 14, 22, .55);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      line-height: 1.05;
+      text-align: center
+    }
+
+    #touchPad .tbt i {
+      font-style: normal;
+      font-size: 1.45em;
+      line-height: 1
+    }
+
+    #touchPad .tbt small {
+      font-size: .78em;
+      font-weight: 600;
+      color: var(--mute)
+    }
+
+    #touchPad .tbt.down {
+      background: rgba(90, 209, 255, .32);
       border-color: var(--cyan)
     }
 
-    #touchPad button.rec {
+    #touchPad .tbt.on {
+      border-color: var(--green);
+      color: var(--green)
+    }
+
+    #touchPad .tbt.warn {
+      border-color: var(--amber);
+      color: var(--amber)
+    }
+
+    #touchPad .tbt.red {
       color: var(--red)
+    }
+
+    #touchPad .tbt.fire {
+      border-color: rgba(255, 92, 92, .55)
+    }
+
+    /* Manette des gaz : curseur vertical (0 en bas, 100 % en haut, zone PC au-dessus pour les jets) */
+    #touchPad .tthr {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: calc(var(--tu) * .06)
+    }
+
+    #touchPad .tthr b {
+      font: 700 calc(var(--tu) * .24 * var(--s, 1)) var(--mono);
+      color: var(--cyan);
+      white-space: nowrap
+    }
+
+    #touchPad .tthr .trk {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      border-radius: calc(var(--tu) * .22);
+      border: 1px solid var(--line2);
+      background: rgba(8, 14, 22, .55);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      overflow: hidden
+    }
+
+    #touchPad .tthr .ab {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 12%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: .8em;
+      color: var(--amber);
+      background: repeating-linear-gradient(135deg, rgba(255, 170, 60, .18) 0 6px, transparent 6px 12px);
+      border-bottom: 1px dashed var(--amber)
+    }
+
+    #touchPad .tthr.jet .ab {
+      display: flex
+    }
+
+    #touchPad .tthr .fill {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(to top, rgba(90, 209, 255, .45), rgba(90, 209, 255, .12))
+    }
+
+    #touchPad .tthr.abon .fill {
+      background: linear-gradient(to top, rgba(90, 209, 255, .45), rgba(255, 170, 60, .5))
+    }
+
+    #touchPad .tthr .tick {
+      position: absolute;
+      left: 30%;
+      right: 30%;
+      height: 1px;
+      background: var(--line2)
+    }
+
+    #touchPad .tthr .knob {
+      position: absolute;
+      left: 6%;
+      right: 6%;
+      height: calc(var(--tu) * .34 * var(--s, 1));
+      margin-top: calc(var(--tu) * -.17 * var(--s, 1));
+      border-radius: calc(var(--tu) * .1);
+      background: #dfe8f0;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, .5);
+      border-top: 2px solid var(--cyan)
+    }
+
+    #touchPad .tthr.rev b {
+      color: var(--amber)
+    }
+
+    /* Manche virtuel : tirer vers le bas = cabrer (comme un vrai manche), droite = virage à droite */
+    #touchPad .stk {
+      border-radius: 50%;
+      border: 1px solid var(--line2);
+      background: radial-gradient(circle, rgba(90, 209, 255, .1) 0 18%, rgba(8, 14, 22, .5) 19% 100%);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px)
+    }
+
+    #touchPad .stk::before,
+    #touchPad .stk::after {
+      content: '';
+      position: absolute;
+      background: var(--line2)
+    }
+
+    #touchPad .stk::before {
+      left: 50%;
+      top: 10%;
+      bottom: 10%;
+      width: 1px
+    }
+
+    #touchPad .stk::after {
+      top: 50%;
+      left: 10%;
+      right: 10%;
+      height: 1px
+    }
+
+    #touchPad .stk .knob {
+      position: absolute;
+      left: 32%;
+      top: 32%;
+      width: 36%;
+      height: 36%;
+      border-radius: 50%;
+      background: radial-gradient(circle at 40% 35%, #f1f6fa, #93a6b5);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, .55);
+      z-index: 1
+    }
+
+    #touchPad .stk.down {
+      border-color: var(--cyan)
+    }
+
+    /* Éditeur de disposition */
+    #tcEdit {
+      display: none
+    }
+
+    body.tcedit #tcEdit {
+      display: flex;
+      position: fixed;
+      z-index: 40;
+      top: max(8px, env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(560px, calc(100vw - 24px));
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 12px;
+      padding: 8px 12px;
+      font-size: 13px
+    }
+
+    #tcEdit .head {
+      flex: 1 1 100%;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline
+    }
+
+    #tcEdit .head span {
+      color: var(--mute);
+      font-size: 12px
+    }
+
+    #tcEdit label {
+      flex: 1 1 150px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap
+    }
+
+    #tcEdit label input {
+      flex: 1;
+      min-width: 60px
+    }
+
+    #tcEdit label b {
+      min-width: 38px;
+      text-align: right;
+      font: 12px var(--mono);
+      color: var(--cyan)
+    }
+
+    #tcEdit .row {
+      flex: 1 1 100%;
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end
+    }
+
+    body.tcedit #touchPad .tc {
+      outline: 1px dashed rgba(90, 209, 255, .7);
+      outline-offset: 2px;
+      opacity: max(var(--op, .85), .7)
+    }
+
+    body.tcedit #touchPad .tc.hid {
+      opacity: .3;
+      outline-color: rgba(255, 255, 255, .4)
+    }
+
+    body.tcedit #touchPad .tc.sel {
+      outline: 2px solid var(--amber)
+    }
+
+    body.tcedit #topbar,
+    body.tcedit #pfd,
+    body.tcedit #right,
+    body.tcedit #nav,
+    body.tcedit #cbPanel,
+    body.tcedit #ctPanel,
+    body.tcedit #tutPanel {
+      opacity: .25;
+      pointer-events: none
+    }
+
+    /* HUD tactile : réduit selon la taille de l'écran (--hud), sans les éléments inutiles au doigt */
+    body.touch #topbar,
+    body.touch #pfd,
+    body.touch #right,
+    body.touch #nav,
+    body.touch #cbPanel,
+    body.touch #ctPanel,
+    body.touch #tutPanel,
+    body.touch #cbBanner,
+    body.touch #recBadge,
+    body.touch #lookBadge,
+    body.touch #rpBar {
+      zoom: var(--hud, 1)
+    }
+
+    body.touch .tbtn span,
+    body.touch .tbtn kbd,
+    body.touch .brand small,
+    body.touch #pfd .grid3,
+    body.touch #pfd .thr,
+    body.touch #pfd .ctlrow,
+    body.touch #sys,
+    body.touch #help,
+    body.touch .navcol:nth-child(5),
+    body.touch .navcol:nth-child(6),
+    body.touch .navcol:nth-child(8) {
+      display: none
+    }
+
+    body.touch #nav {
+      bottom: auto;
+      top: 72px
+    }
+
+    body.touch #tutPanel {
+      top: 150px
+    }
+
+    body.touch.tut #cbBanner {
+      top: 290px
+    }
+
+    body.touch #cbPanel,
+    body.touch #ctPanel {
+      left: 50%;
+      transform: translateX(-50%)
+    }
+
+    body.touch #right {
+      max-height: none
     }
 
     body.touch #toasts {
@@ -1659,6 +1973,7 @@
           </div>
           <canvas id="ctlCurve"></canvas>
           <div class="ctlfoot"><span class="hint" id="ctlPad"></span><button class="btn" id="ctlReset">Par défaut</button></div>
+          <button class="btn touchonly" id="tcLayoutBtn" style="margin-top:6px">Disposition des commandes tactiles…</button>
         </aside>
       </div>
     </div>
@@ -1737,16 +2052,13 @@
     <button class="btn" id="rpExit" title="Quitter (Échap)">✕</button>
   </div>
 
-  <div id="touchPad" class="glass">
-    <button data-hold="z">Gaz +</button>
-    <button data-hold="s">Gaz −</button>
-    <button data-hold="a">◀ Pal.</button>
-    <button data-hold="e">Pal. ▶</button>
-    <button data-hold=" ">Freins</button>
-    <button data-tap="gear">Train</button>
-    <button data-hold="o">Vue arr.</button>
-    <button data-tap="cal">Calibrer</button>
-    <button data-tap="rec" class="rec">● REC</button>
+  <div id="touchPad"></div>
+  <div id="tcEdit" class="glass">
+    <div class="head"><b>Disposition des commandes</b><span>Glissez une commande pour la déplacer · touchez-la pour la sélectionner</span></div>
+    <label>Taille générale <input type="range" id="tcScale" min="60" max="160" step="5"><b id="tcScaleV"></b></label>
+    <label>Opacité <input type="range" id="tcOp" min="30" max="100" step="5"><b id="tcOpV"></b></label>
+    <label><span id="tcSelName">Commande</span> <input type="range" id="tcSize" min="60" max="180" step="5"><b id="tcSizeV"></b></label>
+    <div class="row"><button class="btn" id="tcHide">Masquer</button><button class="btn" id="tcReset">Réinitialiser</button><button class="btn primary" id="tcDone">Terminé</button></div>
   </div>
 
   <div id="rotateHint">
@@ -4745,6 +5057,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       let pitchIn = (dn('arrowdown', '5') ? 1 : 0) - (dn('arrowup', '8') ? 1 : 0);   // +1 = cabrer
       if (S.invert) pitchIn = -pitchIn;
       let rollIn = (dn('arrowright', '6') ? 1 : 0) - (dn('arrowleft', '4') ? 1 : 0);
+      if (TSTICK.on) { if (!pitchIn) pitchIn = S.invert ? -TSTICK.p : TSTICK.p; if (!rollIn) rollIn = TSTICK.r; }   // manche tactile (analogique)
       if (TILT.on) { if (!pitchIn) pitchIn = TILT.p; if (!rollIn) rollIn = TILT.r; }   // inclinaison de l'appareil (analogique)
       if (PAD.on) { if (!pitchIn) pitchIn = S.invert ? -PAD.p : PAD.p; if (!rollIn) rollIn = PAD.r; }   // manette (analogique)
       const yawIn = ((dn('a', 'q') ? 1 : 0) - (dn('d', 'e') ? 1 : 0)) || (PAD.on ? PAD.y : 0);
@@ -5488,6 +5801,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
     function setChip(id, text, cls) { const e = $(id); setText(id, text); const c = 'chip ' + cls; if (e.className !== c) e.className = c; }
     function turbLabel(t) { return t < 0.15 ? 'Nulle' : t < 0.4 ? 'Faible' : t < 0.8 ? 'Modérée' : 'Forte'; }
     function updateHUD() {
+      if (TC.ready) tcTick();
       setText('iasBig', String(kmh(S.speed)));
       setText('iasTrend', Math.abs(S.accel) < 0.15 ? '=' : (S.accel > 0 ? '▲ ' : '▼ ') + Math.abs(S.accel * 3.6).toFixed(1));
       setText('altBig', String(Math.round(S.alt)));
@@ -6258,8 +6572,9 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
     }
 
     // ════════════════════════ Pilotage par inclinaison (mobile / tablette) ════════════════════════
-    const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;   // ?touch=1 : interface tactile sur ordinateur (tests)
     const TILT = { on: false, listening: false, seen: false, p: 0, r: 0, rawP: 0, rawR: 0, p0: null };
+    const TSTICK = { on: false, p: 0, r: 0 };   // manche virtuel de l'écran tactile (−1…1, + = cabrer / droite)
     const deadzone = (v, dead, full) => { const x = Math.abs(v); return x < dead ? 0 : Math.sign(v) * Math.min(1, (x - dead) / (full - dead)); };
     function onOrientation(e) {
       if (e.beta == null || e.gamma == null) return;
@@ -6309,17 +6624,216 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       const onOrient = () => { refreshPause(); setTimeout(onResize, 250); };
       if (portraitMQ.addEventListener) portraitMQ.addEventListener('change', onOrient); else portraitMQ.addListener(onOrient);
       refreshPause();
+      initTouchControls();
+    }
+
+    // ════════════════════════ Commandes tactiles : gaz, manche, boutons déplaçables ════════════════════════
+    // Unité de taille tu = 12 % du petit côté de l'écran (30–66 px) × taille générale réglable : les commandes
+    // restent proportionnelles du petit téléphone à la tablette. Positions par défaut en tu depuis un coin bas
+    // (c: 'l' / 'r', x / y = centre), positions personnalisées en fractions de l'écran (DB.settings.touch.pos).
+    const cbOn = () => !!(window.SKYWAY_COMBAT && SKYWAY_COMBAT.state.active);
+    const TC_DEF = [
+      { id: 'thr', type: 'thr', name: 'Gaz', c: 'l', x: 0.85, y: 2.25, w: 1.1, h: 3.5 },
+      { id: 'yawL', type: 'hold', key: 'a', i: '◀', t: 'Pal.', name: 'Palonnier gauche', c: 'l', x: 2.2, y: 0.75 },
+      { id: 'yawR', type: 'hold', key: 'e', i: '▶', t: 'Pal.', name: 'Palonnier droit', c: 'l', x: 3.35, y: 0.75 },
+      { id: 'brake', type: 'hold', key: ' ', t: 'Freins', c: 'l', x: 2.2, y: 1.9 },
+      { id: 'rev', type: 'tap', key: 'x', t: 'Rev.', name: 'Inverseur de poussée', c: 'l', x: 3.35, y: 1.9, show: () => AC.reverse > 0 },
+      { id: 'gear', type: 'tap', key: 'g', t: 'Train', c: 'l', x: 2.2, y: 3.05, show: () => AC.retract },
+      { id: 'flaps', type: 'tap', key: 'y', t: 'Volets', c: 'l', x: 3.35, y: 3.05 },
+      { id: 'edit', type: 'tap', fn: () => tcEdit(true), i: '⚙', name: 'Disposition', c: 'r', x: 4.1, y: 4.05, w: 0.75, h: 0.75, keep: true },
+      { id: 'stick', type: 'stick', name: 'Manche', c: 'r', x: 1.95, y: 1.95, w: 3, h: 3, show: () => !TILT.on, strict: true },
+      { id: 'cal', type: 'tap', fn: calibrateTilt, t: 'Calibrer', c: 'r', x: 1.95, y: 1.95, show: () => TILT.on, strict: true },
+      { id: 'cam', type: 'tap', key: 'c', t: 'Caméra', c: 'r', x: 4.1, y: 0.75 },
+      { id: 'rear', type: 'hold', key: 'o', t: 'Vue arr.', c: 'r', x: 4.1, y: 1.9 },
+      { id: 'rec', type: 'tap', fn: toggleRec, i: '●', t: 'REC', c: 'r', x: 4.1, y: 3.05, cls: 'red' },
+      { id: 'fire', type: 'hold', key: 'f', i: '✸', t: 'Canon', c: 'r', x: 5.3, y: 0.75, cls: 'fire', show: cbOn },
+      { id: 'msl', type: 'tap', key: 'v', i: '➶', t: 'Missile', c: 'r', x: 5.3, y: 1.9, cls: 'fire', show: cbOn },
+      { id: 'bomb', type: 'hold', key: 'enter', i: '▼', t: 'Bombe', c: 'r', x: 5.3, y: 3.05, cls: 'fire', show: cbOn },
+      { id: 'flare', type: 'tap', key: 'b', i: '✦', t: 'Leurres', c: 'r', x: 6.45, y: 1.9, show: cbOn },
+      { id: 'tgt', type: 'tap', key: 'Tab', i: '◎', t: 'Cible', c: 'r', x: 6.45, y: 3.05, show: cbOn },
+    ];
+    const TC = { ready: false, tu: 40, sel: null, editing: false, wasPaused: false, ab: false, cfg: null, box: null };
+    function tcSettings(o) {
+      const c = { scale: 1, op: 0.85, pos: {} }, n = (v, a, b) => Number.isFinite(v) ? clamp(v, a, b) : null;
+      if (o && typeof o === 'object') {
+        c.scale = n(o.scale, 0.6, 1.6) ?? 1; c.op = n(o.op, 0.3, 1) ?? 0.85;
+        for (const d of TC_DEF) {
+          const q = o.pos && o.pos[d.id]; if (!q || typeof q !== 'object') continue;
+          const r = {}; const x = n(q.x, 0, 1), y = n(q.y, 0, 1), sz = n(q.s, 0.6, 1.8);
+          if (x != null && y != null) { r.x = x; r.y = y; }
+          if (sz != null) r.s = sz;
+          if (q.hide === true && !d.keep) r.hide = true;
+          if (Object.keys(r).length) c.pos[d.id] = r;
+        }
+      }
+      return c;
+    }
+    function initTouchControls() {
+      TC.cfg = DB.settings.touch = tcSettings(DB.settings.touch);
       const pad = $('touchPad');
-      pad.querySelectorAll('[data-hold]').forEach(b => {
-        const k = b.dataset.hold;
-        const up = () => { keys[k] = false; b.classList.remove('down'); };
-        b.addEventListener('pointerdown', e => { e.preventDefault(); Snd.init(); if (anyModal() || RP.active) return; b.setPointerCapture(e.pointerId); keys[k] = true; b.classList.add('down'); });
-        b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+      for (const d of TC_DEF) {
+        const el = d.el = document.createElement('div');
+        el.className = 'tc ' + ({ thr: 'tthr', stick: 'stk' }[d.type] || 'tbt') + (d.cls ? ' ' + d.cls : '');
+        el.dataset.id = d.id;
+        if (d.type === 'thr') {
+          el.innerHTML = '<b>0 %</b><div class="trk"><div class="ab">PC</div><div class="fill"></div>' +
+            [0.25, 0.5, 0.75].map(v => `<div class="tick" data-v="${v}"></div>`).join('') + '<div class="knob"></div></div>';
+          d.trk = el.querySelector('.trk'); d.fill = el.querySelector('.fill'); d.knob = el.querySelector('.knob'); d.val = el.querySelector('b'); d.ticks = [...el.querySelectorAll('.tick')];
+        } else if (d.type === 'stick') {
+          el.innerHTML = '<div class="knob"></div>'; d.knob = el.firstChild;
+        } else {
+          el.innerHTML = (d.i ? `<i>${d.i}</i>` : '') + (d.t ? `<span>${d.t}</span>` : ''); d.lbl = el.querySelector('span');
+        }
+        pad.appendChild(el);
+        tcBind(d);
+      }
+      // Éditeur
+      const cfg = TC.cfg;
+      $('tcScale').oninput = e => { cfg.scale = +e.target.value / 100; tcLayout(); tcEditUI(); };
+      $('tcOp').oninput = e => { cfg.op = +e.target.value / 100; tcLayout(); tcEditUI(); };
+      $('tcSize').oninput = e => { if (!TC.sel) return; tcPos(TC.sel.id).s = +e.target.value / 100; tcLayout(); tcEditUI(); };
+      $('tcHide').onclick = () => {
+        const d = TC.sel; if (!d || d.keep) return;
+        const q = tcPos(d.id); if (q.hide) delete q.hide; else q.hide = true;
+        tcTick(); tcEditUI();
+      };
+      $('tcReset').onclick = () => { cfg.scale = 1; cfg.op = 0.85; cfg.pos = {}; TC.sel = null; tcLayout(); tcTick(); tcEditUI(); toast('Disposition par défaut restaurée', 'info'); };
+      $('tcDone').onclick = () => tcEdit(false);
+      $('tcLayoutBtn').onclick = () => tcEdit(true);
+      addEventListener('resize', () => setTimeout(tcLayout, 60));
+      TC.ready = true;
+      tcLayout(); tcTick();
+    }
+    const tcPos = id => TC.cfg.pos[id] || (TC.cfg.pos[id] = {});
+    // Place chaque commande et calcule l'échelle du HUD
+    function tcLayout() {
+      if (!TC.ready) return;
+      const pad = $('touchPad'), cs = getComputedStyle(pad);
+      const L = parseFloat(cs.paddingLeft) || 0, T = parseFloat(cs.paddingTop) || 0;
+      const W = innerWidth - L - (parseFloat(cs.paddingRight) || 0), H = innerHeight - T - (parseFloat(cs.paddingBottom) || 0);
+      TC.box = { L, T, W, H };
+      const tu = TC.tu = clamp(Math.min(W, H) * 0.12, 30, 66) * TC.cfg.scale;
+      pad.style.setProperty('--tu', tu + 'px'); pad.style.setProperty('--op', TC.cfg.op);
+      // HUD : 1 sur grand écran, réduit sur téléphone (texte encore lisible : ≥ 0,58)
+      document.body.style.setProperty('--hud', clamp(Math.min(innerWidth / 1180, innerHeight / 700), 0.58, 1).toFixed(3));
+      const m = tu * 0.12;
+      for (const d of TC_DEF) {
+        const q = TC.cfg.pos[d.id] || {}, sc = q.s || 1, w = (d.w || 1) * tu * sc, h = (d.h || 1) * tu * sc;
+        let x = q.x != null ? q.x * W : d.c === 'l' ? d.x * tu : W - d.x * tu;
+        let y = q.y != null ? q.y * H : H - d.y * tu;
+        x = clamp(x, w / 2 + m, W - w / 2 - m); y = clamp(y, h / 2 + m, H - h / 2 - m);
+        Object.assign(d.el.style, { left: L + x - w / 2 + 'px', top: T + y - h / 2 + 'px', width: w + 'px', height: h + 'px' });
+        d.el.style.setProperty('--s', sc);
+      }
+    }
+    // État des commandes (≈ 15 Hz, depuis updateHUD) : visibilité, voyants, position de la manette des gaz
+    function tcTick() {
+      const pos = TC.cfg.pos;
+      for (const d of TC_DEF) {
+        // éditeur : tout est visible (les masquées en transparence) sauf manche / calibrage, qui dépendent du mode inclinaison
+        const hid = !!(pos[d.id] && pos[d.id].hide), cond = !d.show || d.show() || (TC.editing && !d.strict);
+        d.el.classList.toggle('off', !cond || (hid && !TC.editing));
+        d.el.classList.toggle('hid', hid);
+      }
+      const D = id => TC_DEF.find(d => d.id === id);
+      const g = D('gear'); g.el.classList.toggle('on', S.gearTarget === 1); g.el.classList.toggle('warn', S.gearPos > 0.02 && S.gearPos < 0.98);
+      g.lbl.textContent = S.gearTarget ? 'Train ↓' : 'Train ↑';
+      const f = D('flaps'), fn = Math.round(S.flapTarget * 2); f.lbl.textContent = ['Volets 0', 'Volets 1', 'Volets 2'][fn]; f.el.classList.toggle('on', fn > 0);
+      D('rev').el.classList.toggle('warn', !!S.reverse);
+      D('brake').el.classList.toggle('on', !!S.braking);
+      D('rec').el.classList.toggle('down', !!REC.on);
+      if (TC.ab && (S.throttle < 0.9 || !AC.jet)) TC.ab = false;
+      if (TC.ab && !keys.shift && !S.paused) keys.shift = true;          // la postcombustion reste engagée (la pause vide les touches)
+      tcThrView();
+    }
+    function tcThrView() {
+      const d = TC_DEF[0], jet = !!AC.jet, top = jet ? 0.88 : 1, v = TC.ab ? 1 : S.throttle * top;
+      d.el.classList.toggle('jet', jet); d.el.classList.toggle('abon', TC.ab); d.el.classList.toggle('rev', !!S.reverse);
+      d.fill.style.height = v * 100 + '%'; d.knob.style.top = (1 - v) * 100 + '%';
+      d.val.textContent = TC.ab ? 'PC' : (S.reverse ? 'REV ' : '') + Math.round(S.throttle * 100) + ' %';
+      for (const t of d.ticks) t.style.bottom = t.dataset.v * top * 100 + '%';
+    }
+    function tcBind(d) {
+      const el = d.el;
+      let pid = null, drag = null;
+      const blocked = () => anyModal() || RP.active;
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation(); Snd.init();
+        if (pid != null) return;
+        if (TC.editing) {                                                // éditeur : déplacer / sélectionner
+          const r = el.getBoundingClientRect();
+          drag = { dx: e.clientX - (r.left + r.width / 2), dy: e.clientY - (r.top + r.height / 2), x0: e.clientX, y0: e.clientY, moved: false };
+          pid = e.pointerId; el.setPointerCapture(pid); tcSelect(d); return;
+        }
+        if (blocked()) return;
+        pid = e.pointerId; el.setPointerCapture(pid);
+        if (d.type === 'hold') { keys[d.key] = true; el.classList.add('down'); }
+        else if (d.type === 'tap') { el.classList.add('down'); if (d.fn) d.fn(); else padKey(d.key); }
+        else if (d.type === 'thr') tcThrMove(d, e);
+        else if (d.type === 'stick') { el.classList.add('down'); tcStickMove(d, e); }
       });
-      pad.querySelectorAll('[data-tap]').forEach(b => b.addEventListener('click', () => {
-        Snd.init();
-        ({ gear: () => !S.crashed && !RP.active && toggleGear(), tilt: toggleTilt, cal: calibrateTilt, rec: toggleRec, cam: cycleCam })[b.dataset.tap]?.();
-      }));
+      el.addEventListener('pointermove', e => {
+        if (e.pointerId !== pid) return;
+        if (drag) {
+          if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 6) drag.moved = true;
+          if (!drag.moved) return;
+          const B = TC.box, q = tcPos(d.id);
+          q.x = clamp((e.clientX - drag.dx - B.L) / B.W, 0, 1); q.y = clamp((e.clientY - drag.dy - B.T) / B.H, 0, 1);
+          tcLayout(); return;
+        }
+        if (d.type === 'thr') tcThrMove(d, e);
+        else if (d.type === 'stick') tcStickMove(d, e);
+      });
+      const up = e => {
+        if (e.pointerId !== pid) return;
+        pid = null;
+        if (drag) { drag = null; persist(); return; }
+        el.classList.remove('down');
+        if (d.type === 'hold') keys[d.key] = false;
+        else if (d.type === 'stick') { TSTICK.on = false; TSTICK.p = TSTICK.r = 0; d.knob.style.transform = ''; }
+      };
+      el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
+    }
+    // Manette des gaz : position absolue du doigt sur la glissière ; jets : zone PC au-dessus de 100 %
+    function tcThrMove(d, e) {
+      const r = d.trk.getBoundingClientRect(), f = clamp(1 - (e.clientY - r.top) / r.height, 0, 1);
+      const jet = !!AC.jet, v = jet ? f / 0.88 : f;
+      TC.ab = jet && v > 1.02;
+      S.throttle = clamp(v > 0.985 ? 1 : v < 0.015 ? 0 : v, 0, 1);
+      keys.shift = TC.ab;
+      tcThrView();
+    }
+    // Manche : déplacement du doigt depuis le centre, normalisé sur 40 % du diamètre, courbe et sensibilités de CTL
+    function tcStickMove(d, e) {
+      const r = d.el.getBoundingClientRect(), R = r.width * 0.4;
+      let x = (e.clientX - (r.left + r.width / 2)) / R, y = (e.clientY - (r.top + r.height / 2)) / R;
+      const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
+      d.knob.style.transform = `translate(${x * R}px, ${y * R}px)`;
+      TSTICK.on = true; TSTICK.r = stickCurve(x, CTL.r); TSTICK.p = stickCurve(y, CTL.p);
+    }
+    function tcSelect(d) { TC.sel = d; for (const o of TC_DEF) o.el.classList.toggle('sel', o === d); tcEditUI(); }
+    function tcEditUI() {
+      const c = TC.cfg, d = TC.sel, q = d && c.pos[d.id];
+      $('tcScale').value = Math.round(c.scale * 100); setText('tcScaleV', Math.round(c.scale * 100) + ' %');
+      $('tcOp').value = Math.round(c.op * 100); setText('tcOpV', Math.round(c.op * 100) + ' %');
+      setText('tcSelName', d ? (d.name || d.t) : 'Commande');
+      $('tcSize').disabled = !d; $('tcSize').value = Math.round(((q && q.s) || 1) * 100); setText('tcSizeV', d ? Math.round(((q && q.s) || 1) * 100) + ' %' : '—');
+      $('tcHide').disabled = !d || !!d.keep; $('tcHide').textContent = q && q.hide ? 'Afficher' : 'Masquer';
+    }
+    function tcEdit(on) {
+      if (!TC.ready || on === TC.editing) return;
+      if (on) {
+        closeAllModals();
+        TC.editing = true; TC.wasPaused = S.userPaused; S.userPaused = true; refreshPause();
+        TSTICK.on = false; TSTICK.p = TSTICK.r = 0;
+        document.body.classList.add('tcedit'); tcSelect(TC_DEF[0]);
+      } else {
+        TC.editing = false; document.body.classList.remove('tcedit');
+        for (const o of TC_DEF) o.el.classList.remove('sel', 'down');
+        S.userPaused = TC.wasPaused; refreshPause();
+        persist(); toast('Disposition enregistrée', 'ok');
+      }
+      tcTick();
     }
 
     // ════════════════════════ Boucle ════════════════════════

@@ -396,7 +396,13 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - `startReplay` loads the replay's map and switches aircraft if needed; `exitReplay` calls `resetFlight`. Replay keys: Space, ← →, ↑ ↓, C, Esc.
 
 **Touch and tilt**
-- `IS_TOUCH` adds `body.touch`. `#touchPad` hold buttons map to `keys` (z, s, a, e, space); tap buttons handle gear, calibrate and REC.
+- `IS_TOUCH` (or `?touch=1`, for testing on a desktop) adds `body.touch`.
+- Touch controls (`TC_DEF`, `initTouchControls`, `tcLayout`, `tcTick`): each control is an absolutely positioned `.tc` in `#touchPad`.
+  - Size unit `TC.tu` = 12 % of the short screen side (30–66 px) × the global scale; CSS uses `--tu`, per-control size `--s`, opacity `--op`. Safe-area insets come from `#touchPad`'s padding.
+  - Types: `thr` (vertical slider, sets `S.throttle` directly from the finger position; jets get an afterburner zone above 100 % that holds `keys.shift` through `TC.ab`), `stick` (virtual stick → `TSTICK.p/r` through `stickCurve`, read in `updatePlane` before the tilt; drag down = climb), `hold` (sets `keys[key]`), `tap` (`padKey(key)` or `fn`).
+  - Defaults are in `tu` from a bottom corner (`c: 'l' | 'r'`, centre `x`, `y`); `show()` hides controls out of context (gear on fixed-gear types, reverse, stick vs. calibrate in tilt mode, weapons only while `SKYWAY_COMBAT.state.active`). `tcTick` runs from `updateHUD` (gear / flaps / brake / reverse / REC states, throttle position).
+  - Layout editor (`tcEdit(on)`, ⚙ control or « Disposition des commandes tactiles… » in the T window): pauses the flight; drag to move, tap to select, global size, opacity, per-control size, hide / show, reset. `strict` controls (stick, calibrate) stay mode-dependent in the editor.
+  - On touch the HUD is scaled with CSS `zoom: var(--hud)` (`min(w/1180, h/700)`, 0.58–1); the nav bar moves to the top centre, the mission panels to the bottom centre, and the keyboard-only parts (`#help`, `#sys`, PFD grid / throttle / stick, top-bar labels) are hidden.
 - The Inclinaison button calls `toggleTilt` (iOS permission prompt; fullscreen and landscape lock are best-effort).
 - `onOrientation` turns beta/gamma into a screen-space up vector. Roll = steering-wheel tilt, pitch = top edge toward you = climb, neutral = calibration (`TILT.p0`).
 - Sensor events need HTTPS (or localhost).
@@ -407,7 +413,7 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 DB = {
   flights[],
   best{maxAlt, maxSpeed, longest, softest},
-  settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}, ctl{p, r, y, dead, expo, tilt}},
+  settings{invert, sound, ac, gfx, dynRes, map, pilot, room, wx{preset, from, base, gust, turb}, ctl{p, r, y, dead, expo, tilt}, touch{scale, op, pos{id: {x, y (screen fractions), s, hide}}}},
   combat{unlocked, unlockedSol, best{levelId: {score, stars, time, ac}}, ac, start('base'|'carrier')},
   school{done{lessonId: {date, time}}},
   career{money, contracts, pax, kg, failed}
@@ -565,6 +571,7 @@ DB = {
 - GitHub Pages serves the game as a *project* site under `/skyway-3D-simulator/`. Crawlers only read `robots.txt` and AdSense only reads `ads.txt` at the domain root, so with the github.io URL submit `sitemap.xml` in Google Search Console, and use a custom domain (or a `w2001-rf.github.io` user-site repo) for `ads.txt`.
 - AdSense Auto ads must be disabled for the game page (AdSense › Ads › By site / URL exclusions), otherwise Google may overlay banners on the canvas. Only `guide.html` should use Auto ads.
 - AdSense is not allowed inside apps: the page skips it when `window.SKYWAY_APP` is set, and the app uses AdMob instead. Keep it that way.
+- Test the touch layout with DevTools mobile emulation (`Emulation.setDeviceMetricsOverride` + `setTouchEmulationEnabled`, then `Input.dispatchTouchEvent` for gestures): with `--screenshot` the viewport differs from the window size, so the layout is wrong in those shots.
 - Headless Edge enforces a minimum window width of about 500 px: phone-width screenshots are cropped, not reflowed. Measure layout with `innerWidth` / `scrollWidth` instead.
 
 ## 11. Suggested next steps for Claude Code
