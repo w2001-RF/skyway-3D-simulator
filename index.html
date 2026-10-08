@@ -7218,6 +7218,8 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       { id: 'stick', type: 'stick', name: 'Manche', c: 'r', x: 1.95, y: 1.95, w: 3, h: 3, show: () => !TILT.on, strict: true },
       { id: 'cal', type: 'tap', fn: calibrateTilt, t: 'Calibrer', c: 'r', x: 1.95, y: 1.95, show: () => TILT.on, strict: true },
       { id: 'cam', type: 'tap', key: 'c', t: 'Caméra', c: 'r', x: 4.1, y: 0.75 },
+      { id: 'talk', type: 'hold', key: 'ptt', i: '◉', t: 'Parler', name: 'Parler (vol en ligne)', c: 'r', x: 5.3, y: 4.2, show: () => !!(window.SKYWAY_ONLINE && SKYWAY_ONLINE.ptt()) },
+      { id: 'radio', type: 'tap', fn: () => window.SKYWAY_RADIO && SKYWAY_RADIO.toggle(), i: '⌁', t: 'Radio', name: 'Radio · tour', c: 'r', x: 6.45, y: 0.75 },
       { id: 'rear', type: 'hold', key: 'o', t: 'Vue arr.', c: 'r', x: 4.1, y: 1.9 },
       { id: 'rec', type: 'tap', fn: toggleRec, i: '●', t: 'REC', c: 'r', x: 4.1, y: 3.05, cls: 'red' },
       { id: 'fire', type: 'hold', key: 'f', i: '✸', t: 'Canon', c: 'r', x: 5.3, y: 0.75, cls: 'fire', show: cbOn },
@@ -9181,6 +9183,52 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       flex: 1
     }
 
+    .olvoice {
+      display: flex;
+      flex-direction: column;
+      gap: 6px
+    }
+
+    #vcMeter {
+      height: 6px;
+      background: rgba(255, 255, 255, .08);
+      border-radius: 3px;
+      overflow: hidden
+    }
+
+    #vcMeter i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--green);
+      transition: width .08s
+    }
+
+    #vcBadge {
+      display: none;
+      top: 108px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 4px 12px;
+      font: 700 12px var(--mono);
+      letter-spacing: .12em;
+      color: var(--cyan);
+      z-index: 16;
+      pointer-events: none
+    }
+
+    #vcBadge.on {
+      display: block
+    }
+
+    #vcBadge.me {
+      color: var(--green)
+    }
+
+    body.touch #vcBadge {
+      zoom: var(--hud, 1)
+    }
+
     #olPeers {
       list-style: none;
       margin: 0;
@@ -9229,6 +9277,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
     }
   </style>
 
+  <div id="vcBadge" class="glass"></div>
   <div id="olModal" class="modal">
     <div class="card">
       <div class="chead">
@@ -9249,6 +9298,19 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
           <div id="olStatus" class="hint"></div>
           <span class="lbl">Pilotes de la session</span>
           <ul id="olPeers"></ul>
+          <span class="lbl">Voix</span>
+          <div class="olvoice">
+            <select id="vcMode">
+              <option value="ptt">Appuyer pour parler (touche ² / `)</option>
+              <option value="open">Micro ouvert</option>
+              <option value="off">Écoute seule (micro désactivé)</option>
+            </select>
+            <button class="btn" id="vcTalk">Maintenir pour parler</button>
+            <div id="vcMeter"><i></i></div>
+            <div class="sl"><span>Volume des voix</span></div><input type="range" id="vcVol" min="0" max="100" step="5">
+            <label class="sl" style="cursor:pointer"><span>Portée radio limitée (30 km, même carte)</span><input type="checkbox" id="vcRange"></label>
+            <div id="vcInfo" class="hint"></div>
+          </div>
         </div>
         <div class="olcol">
           <span class="lbl">Messages</span>
@@ -9304,6 +9366,73 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         if (keyId(e) === 'u') { toggleModal('olModal'); renderUI(); }
       });
       addEventListener('beforeunload', () => { if (OL.room) OL.room.leave(); });
+
+      // ════════════════════════ Voix : communication audio entre les pilotes (WebRTC, pair-à-pair) ════════════════════════
+      // Le micro est un flux audio ajouté à la session (room.addStream) : il part directement vers chaque pilote, chiffré, sans
+      // serveur. Modes : appuyer pour parler (touche ² / `, bouton, ou bouton « Parler » sur mobile), micro ouvert, ou écoute
+      // seule. Le drapeau 16 de l'état (12 Hz) indique qui parle. Portée radio optionnelle : 30 km sur la même carte.
+      // Les flux reçus sont lus par des éléments <audio> (volume = réglage « Voix des pilotes », atténué avec la distance).
+      const VC = { stream: null, track: null, ptt: false, talking: false, els: new Map(), an: null, buf: null, asking: false, vt: 0, lvl: 0 };
+      const typing = e => { const t = (e.target && e.target.tagName) || ''; return t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA'; };
+      const talkWanted = () => AUD.mic === 'open' || (AUD.mic === 'ptt' && (VC.ptt || !!keys.ptt));
+      const speaking = p => !!(p.buf.length && performance.now() / 1000 - p.last < 1.2 && (p.buf[p.buf.length - 1].f & 16));
+      async function ensureMic() {
+        if (VC.stream || VC.asking || AUD.mic === 'off' || !OL.room) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Micro indisponible (HTTPS requis) : écoute seule', 'caution'); AUD.mic = 'off'; persist(); renderVoice(); return; }
+        VC.asking = true;
+        try {
+          const st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+          if (!OL.room || AUD.mic === 'off') { st.getTracks().forEach(t => t.stop()); return; }
+          VC.stream = st; VC.track = st.getAudioTracks()[0]; VC.track.enabled = false;        // muet tant qu'on ne parle pas
+          try { OL.room.addStream(st); } catch (e) { logLine('Voix : envoi du micro impossible (' + e.message + ')', 'sys'); }
+          Snd.init();
+          if (Snd.ctx) { const src = Snd.ctx.createMediaStreamSource(st); VC.an = Snd.ctx.createAnalyser(); VC.an.fftSize = 512; VC.buf = new Float32Array(512); src.connect(VC.an); }   // jauge de niveau (non relié aux haut-parleurs : pas de retour)
+          logLine(AUD.mic === 'ptt' ? 'Micro prêt : maintenez ² (ou `) pour parler.' : 'Micro ouvert.', 'sys');
+        } catch (e) { toast('Micro refusé : vous pouvez écouter, pas parler', 'caution'); AUD.mic = 'off'; persist(); }
+        finally { VC.asking = false; renderVoice(); }
+      }
+      function stopMic() {
+        if (VC.stream) { try { if (OL.room) OL.room.removeStream(VC.stream); } catch (e) { } VC.stream.getTracks().forEach(t => t.stop()); }
+        VC.stream = VC.track = VC.an = null; VC.talking = false; VC.ptt = false;
+      }
+      function updateTalk() {
+        const want = !!VC.track && !!OL.room && talkWanted();
+        if (want !== VC.talking) { VC.talking = want; VC.track.enabled = want; if (want) Snd.squelch(); renderVoice(); }
+      }
+      function attachVoice(id, stream) {
+        let v = VC.els.get(id);
+        if (!v) { const a = document.createElement('audio'); a.autoplay = true; a.setAttribute('playsinline', ''); a.style.display = 'none'; document.body.appendChild(a); v = { a }; VC.els.set(id, v); }
+        v.a.srcObject = stream; v.a.play().catch(() => { });
+        voiceVolumes();
+      }
+      function dropVoice(id) { const v = VC.els.get(id); if (!v) return; v.a.srcObject = null; v.a.remove(); VC.els.delete(id); }
+      function voiceVolumes() {
+        for (const [id, v] of VC.els) {
+          const p = OL.peers.get(id); let g = AUD.voice;
+          if (AUD.range) { if (!p || !p.mesh || p.map !== MAP.id || !p.cur) g = 0; else g *= clamp(1 - plane.position.distanceTo(p.mesh.position) / 30000, 0, 1); }
+          v.a.volume = clamp(g, 0, 1); v.a.muted = !DB.settings.sound;
+        }
+      }
+      function renderVoice() {
+        if (!$('vcMode')) return;
+        $('vcMode').value = AUD.mic; $('vcRange').checked = AUD.range; $('vcVol').value = Math.round(AUD.voice * 100);
+        const t = $('vcTalk'); t.style.display = AUD.mic === 'ptt' ? '' : 'none'; t.classList.toggle('primary', VC.talking);
+        setText('vcInfo', !OL.room ? 'Le navigateur demandera l\'accès au micro quand vous rejoindrez une session.' : AUD.mic === 'off' ? 'Micro désactivé : vous entendez les autres pilotes.' : VC.stream ? (VC.talking ? 'Vous parlez…' : AUD.mic === 'ptt' ? 'Maintenez ² (ou `) pour parler.' : 'Micro ouvert.') : VC.asking ? 'Autorisez le micro dans le navigateur…' : 'Micro non disponible.');
+        const bd = $('vcBadge'), names = [...OL.peers.values()].filter(p => p.ok && speaking(p)).map(p => p.name);
+        bd.textContent = VC.talking ? '◉ VOUS PARLEZ' : names.length ? '◉ ' + names.join(', ') : ''; bd.classList.toggle('on', !!bd.textContent); bd.classList.toggle('me', VC.talking);
+      }
+      $('vcMode').onchange = e => { AUD.mic = e.target.value; persist(); if (AUD.mic === 'off') stopMic(); else ensureMic(); renderVoice(); };
+      $('vcRange').onchange = e => { AUD.range = e.target.checked; persist(); voiceVolumes(); };
+      $('vcVol').oninput = e => { AUD.voice = clamp(+e.target.value / 100, 0, 1); persist(); voiceVolumes(); if (typeof renderAudio === 'function') renderAudio(); };
+      const tk = $('vcTalk'), tkUp = () => { VC.ptt = false; };
+      tk.addEventListener('pointerdown', e => { e.preventDefault(); VC.ptt = true; try { tk.setPointerCapture(e.pointerId); } catch (err) { } });
+      tk.addEventListener('pointerup', tkUp); tk.addEventListener('pointercancel', tkUp); tk.addEventListener('lostpointercapture', tkUp);
+      addEventListener('keydown', e => { if (e.code === 'Backquote' && !typing(e)) { VC.ptt = true; e.preventDefault(); } });
+      addEventListener('keyup', e => { if (e.code === 'Backquote') VC.ptt = false; });
+      addEventListener('blur', () => { VC.ptt = false; });
+      if (helpTable) { const tr = document.createElement('tr'); tr.innerHTML = '<td><kbd>²</kbd> / <kbd>`</kbd></td><td>Parler (vol en ligne)</td>'; helpTable.appendChild(tr); }
+      window.SKYWAY_ONLINE = { active: () => !!OL.room, ptt: () => !!OL.room && AUD.mic === 'ptt', talking: () => VC.talking, _test: { VC, OL, attachVoice, dropVoice, voiceVolumes, ensureMic, updateTalk, renderVoice } };
+
       if (linkCode) setTimeout(() => toast(`Lien de session ${linkCode} : appuyez sur U puis « Rejoindre »`, 'info'), 1500);
 
       function logLine(html, cls) {
@@ -9335,7 +9464,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         for (const p of OL.peers.values()) {
           if (!p.ok) continue;
           const li = document.createElement('li'); li.innerHTML = '<span></span><span class="m"></span>';
-          li.firstChild.textContent = p.name;
+          li.firstChild.textContent = p.name + (speaking(p) ? ' ◉' : '');
           const same = p.map === MAP.id, d = p.cur ? Math.hypot(p.cur.x - plane.position.x, p.cur.z - plane.position.z) : 0;
           li.lastChild.textContent = `${acName(p.ac)} · ` + (same ? `${fmtDist(d)} · ${Math.round(p.cur ? p.cur.y : 0)} m` : `carte ${mapName(p.map)}`);
           ul.appendChild(li);
@@ -9365,15 +9494,19 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         A.st.onMessage = (d, m) => onState(m && m.peerId, d);
         A.hi.onMessage = (d, m) => onHi(m && m.peerId, d);
         A.chat.onMessage = (d, m) => onChat(m && m.peerId, d);
-        room.onPeerJoin = id => A.hi.send(profile(), { target: id });
+        room.onPeerJoin = id => { A.hi.send(profile(), { target: id }); if (VC.stream) { try { room.addStream(VC.stream, { target: id }); } catch (e) { } } };
         room.onPeerLeave = id => dropPeer(id, true);
+        room.onPeerStream = (stream, id) => attachVoice(id, stream);
         logLine(`Session ${code} ouverte. En attente d'autres pilotes (même code, même carte)…`, 'sys');
         toast(`En ligne : session ${code}`, 'ok');
-        renderUI();
+        renderUI(); renderVoice();
+        if (AUD.mic !== 'off') ensureMic();
       }
       function leave(quiet) {
         if (!OL.room) return;
+        stopMic();
         try { OL.room.leave(); } catch (e) { }
+        for (const id of [...VC.els.keys()]) dropVoice(id);
         for (const id of [...OL.peers.keys()]) dropPeer(id, false);
         OL.room = OL.act = null;
         if (!quiet) { logLine('Session quittée.', 'sys'); toast('Hors ligne', 'info'); }
@@ -9408,6 +9541,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       }
       function dropPeer(id, say) {
         const p = OL.peers.get(id); if (!p) return;
+        dropVoice(id);
         if (p.mesh) scene.remove(p.mesh);
         if (p.tag) { scene.remove(p.tag); p.tag.material.map.dispose(); p.tag.material.dispose(); }
         OL.peers.delete(id);
@@ -9458,7 +9592,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         if (!OL.act || now - OL.sendT < SEND_DT * 1000) return;
         OL.sendT = now;
         const p = plane.position, q = plane.quaternion;
-        const f = (S.onGround ? 1 : 0) | (S.crashed ? 2 : 0) | (S.ab ? 4 : 0) | (RP.active || !plane.visible ? 8 : 0);
+        const f = (S.onGround ? 1 : 0) | (S.crashed ? 2 : 0) | (S.ab ? 4 : 0) | (RP.active || !plane.visible ? 8 : 0) | (VC.talking ? 16 : 0);
         OL.act.st.send([Math.round(now) / 1000, R2(p.x), R2(p.y), R2(p.z), R4(q.x), R4(q.y), R4(q.z), R4(q.w), R2(S.speed), R2(S.throttle), R2(S.gearPos), f, R2(S.flapPos)]);
       }
       function onState(id, d) {
@@ -9469,6 +9603,8 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         const q = new THREE.Quaternion(d[4], d[5], d[6], d[7]); if (q.lengthSq() < 0.5) return; q.normalize();
         const s = { t: ts, x: d[1], y: d[2], z: d[3], q, spd: d[8], thr: clamp(d[9], 0, 1), gear: clamp(d[10], 0, 1), f: d[11] | 0, flap: fin(d[12]) ? clamp(d[12], 0, 1) : 0 };
         const b = p.buf; if (b.length && s.t <= b[b.length - 1].t) return;
+        if ((s.f & 2) && !p.crashed) { p.crashed = true; if (p.map === MAP.id && !(s.f & 8)) crashRemote(new THREE.Vector3(s.x, s.y, s.z)); }   // boule de feu à l'endroit du crash d'un autre pilote
+        else if (!(s.f & 2)) p.crashed = false;
         b.push(s); if (b.length > 30) b.shift();
         p.last = now;
         if (!p.ac) onHi(id, {});                                // profil pas encore reçu : avion par défaut
@@ -9476,7 +9612,7 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       // Interpolation 150 ms en arrière entre deux états reçus ; extrapolation courte si le flux prend du retard
       const _qa = new THREE.Quaternion();
       function updatePeers(now, dt) {
-        let i = 0;
+        let i = 0; const eng = [];
         for (const p of OL.peers.values()) {
           if (!p.mesh) continue;
           const b = p.buf, live = b.length && now - p.last < STALE, rt = now - p.off - DELAY;
@@ -9498,10 +9634,19 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
           p.mesh.position.set(cur.x, cur.y, cur.z); p.mesh.quaternion.copy(_qa);
           const fwd = _kv.set(0, 0, 1).applyQuaternion(_qa); cur.hdg = compassOf(fwd.x, fwd.z);
           animRemote(p, dt, now + i++);
+          // Son du moteur : distance, Doppler (vitesse relative selon la ligne caméra → avion), les 3 plus proches seulement
+          const px = p.sx === undefined ? cur.x : p.sx, py = p.sx === undefined ? cur.y : p.sy, pz = p.sx === undefined ? cur.z : p.sz; p.sx = cur.x; p.sy = cur.y; p.sz = cur.z;
+          if (dt > 0 && !(cur.f & 2)) {
+            const dx = camera.position.x - cur.x, dy = camera.position.y - cur.y, dz = camera.position.z - cur.z, dd = Math.hypot(dx, dy, dz) || 1;
+            const vx = (cur.x - px) / dt - S.vel.x, vy = (cur.y - py) / dt - S.vel.y, vz = (cur.z - pz) / dt - S.vel.z;
+            eng.push({ p, d: dd, app: (vx * dx + vy * dy + vz * dz) / dd });
+          }
           const L = AIRCRAFT[p.ac].look;
           p.tag.position.set(cur.x, cur.y + L.span * 0.25 + 3, cur.z);
           if (now - p.tagT > 0.5) { p.tagT = now; drawTag(p, (cur.f & 2 ? 'écrasé · ' : '') + fmtDist(plane.position.distanceTo(p.mesh.position))); }
         }
+        eng.sort((a, b) => a.d - b.d);
+        for (let k = 0; k < Math.min(3, eng.length); k++) { const e = eng[k]; Snd.remote(e.p.id, AIRCRAFT[e.p.ac], e.p.cur.thr, e.d, clamp(e.app, -250, 250)); }
       }
       function animRemote(p, dt, t) {
         const P = p.mesh.userData.parts, s = p.cur, w = s.f & 2 ? 0 : s.thr * 45 + s.spd * 0.3, ab = !!(s.f & 4);
@@ -9521,6 +9666,9 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
         if (!OL.room) return;
         sendState(now);
         updatePeers(now / 1000, dt);
+        updateTalk();
+        VC.vt += dt; if (VC.vt > 0.25) { VC.vt = 0; voiceVolumes(); renderVoice(); }
+        if (VC.an && $('olModal').classList.contains('open')) { VC.an.getFloatTimeDomainData(VC.buf); let q = 0; for (const v of VC.buf) q += v * v; VC.lvl = Math.sqrt(q / VC.buf.length); $('vcMeter').firstChild.style.width = clamp(VC.lvl * 400, 0, 100) + '%'; }
         OL.uiT += dt; if (OL.uiT > 0.5) { OL.uiT = 0; renderUI(); }
       };
       const _drawRadar = drawRadar;
@@ -10256,6 +10404,313 @@ vec3 ACESFilmicToneMapping( vec3 color ) {
       };
       document.querySelector('#help table').insertAdjacentHTML('beforeend', `<tr><td><kbd>J</kbd></td><td>Missions : école, transport, combat</td></tr>`);
       toast('Nouveau : école de pilotage, transport de fret et de passagers (J · Missions).', 'ok');
+    })();
+  </script>
+
+  <!-- ═══════════ EXTENSION RADIO · tour de contrôle ↔ pilote (synthèse vocale, sous-titres, effets radio) ═══════════ -->
+  <style>
+    #atcBox {
+      right: 12px;
+      bottom: 12px;
+      width: 292px;
+      padding: 10px 12px 12px;
+      display: none;
+      z-index: 22
+    }
+
+    #atcBox.open {
+      display: block
+    }
+
+    #atcBox .phead b {
+      color: var(--cyan)
+    }
+
+    #atcWho {
+      margin: 2px 0 8px;
+      font-size: 13px
+    }
+
+    #atcBtns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px
+    }
+
+    #atcBtns button {
+      padding: 9px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--line2);
+      background: rgba(255, 255, 255, .05);
+      color: var(--txt);
+      font: 600 14px var(--ui);
+      cursor: pointer
+    }
+
+    #atcBtns button:hover:not(:disabled) {
+      border-color: var(--cyan);
+      color: var(--cyan)
+    }
+
+    #atcBtns button:disabled {
+      opacity: .35;
+      cursor: default
+    }
+
+    #atcBtns button.mayday {
+      grid-column: 1 / -1;
+      color: var(--red);
+      border-color: rgba(255, 92, 92, .5)
+    }
+
+    #atcLog {
+      display: none;
+      top: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(560px, calc(100vw - 24px));
+      padding: 8px 12px;
+      z-index: 24;
+      pointer-events: none;
+      font-size: 14px
+    }
+
+    #atcLog.on {
+      display: block
+    }
+
+    #atcLog div {
+      padding: 2px 0;
+      line-height: 1.3
+    }
+
+    #atcLog b {
+      letter-spacing: .1em;
+      font-size: 11px;
+      margin-right: 6px
+    }
+
+    #atcLog .tw b {
+      color: var(--cyan)
+    }
+
+    #atcLog .pl b {
+      color: var(--amber)
+    }
+
+    #atcLog .pl {
+      color: #e6ddc4
+    }
+
+    body.touch #atcBox {
+      right: auto;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 10px
+    }
+
+    body.touch #atcLog {
+      top: 165px
+    }
+
+    body.touch #atcBox,
+    body.touch #atcLog {
+      zoom: var(--hud, 1)
+    }
+  </style>
+  <div id="atcBox" class="glass">
+    <div class="phead"><span class="lbl">Radio · <b id="atcFreq">118,30</b> MHz</span><button class="x" id="atcX">✕</button></div>
+    <div id="atcWho" class="hint"></div>
+    <div id="atcBtns"></div>
+  </div>
+  <div id="atcLog" class="glass"></div>
+  <script>
+    'use strict';
+    (() => {
+      // ════════════════════════ Radio : dialogue avec la tour de contrôle ════════════════════════
+      // Le pilote appelle (boutons ou touche 0), la tour répond selon le contexte (vent, piste en service, QNH, position…).
+      // Voix : synthèse vocale du navigateur (français) ; les deux voix (tour / pilote) ont une hauteur différente, avec déclics
+      // d'émission et souffle radio synthétisés. Sous-titres toujours affichés. Sans synthèse vocale : murmure radio.
+      // Appels automatiques : autorisation d'atterrissage en finale, rappel du train, décollage noté, dégagement de piste.
+      const AU = DB.settings.audio, TTS = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function';
+      const DIG = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf'];
+      const NATO = { A: 'Alpha', B: 'Bravo', C: 'Charlie', D: 'Delta', E: 'Echo', F: 'Fox-trot', G: 'Golf', H: 'Hôtel', I: 'India', J: 'Juliett', K: 'Kilo', L: 'Lima', M: 'Mike', N: 'November', O: 'Oscar', P: 'Papa', Q: 'Québec', R: 'Roméo', S: 'Sierra', T: 'Tango', U: 'Uniform', V: 'Victor', W: 'Whisky', X: 'X-ray', Y: 'Yankee', Z: 'Zoulou' };
+      const spell = s => String(s).split('').map(c => /\d/.test(c) ? DIG[+c] : c).join(' ');
+      const p3 = n => String(Math.round(n)).padStart(3, '0');
+      const R = { open: false, busy: false, queue: [], lines: [], voices: [], cleared: null, dep: false, landFor: '', gearWarn: false, landed: false, lastAuto: 0, ap: null };
+      const loadVoices = () => { if (TTS) R.voices = speechSynthesis.getVoices().filter(v => /^fr/i.test(v.lang)); };
+      if (TTS) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+      const compass8 = a => ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'][Math.round(wrap360(a) / 45) % 8];
+      const km = m => (m / 1000).toFixed(m < 10000 ? 1 : 0).replace('.', ',');
+
+      // ── Contexte : aérodrome concerné, piste, vent, QNH
+      const radius = 45000;
+      function nearApt() {
+        const t = NAV.target && NAV.target.ap && !S.onGround ? NAV.target.ap : null;
+        const ap = t || nearestAirport(plane.position.x, plane.position.z);
+        return ap && Math.hypot(ap.x - plane.position.x, ap.z - plane.position.z) < radius ? ap : null;
+      }
+      function rwyOf(ap, mode) {                                              // numéro de piste utilisé (selon la position, le cap ou le vent)
+        if (ap.carrier) return null;
+        const h1 = runwayHdg(ap), pl = toLocal(ap, plane.position.x, plane.position.z);
+        let e;
+        if (mode === 'dep') return rwyNum(S.hdg);
+        if (Math.abs(pl.lz) > 800) e = Math.sign(pl.lz);
+        else { const d = h => Math.abs(wrap180(h - S.windFrom)); e = d(h1) <= d(h1 + 180) ? -1 : 1; }
+        return rwyNum(e < 0 ? h1 : h1 + 180);
+      }
+      const qnh = () => 1006 + (strHash(MAP.id) % 17);
+      function windParts() {
+        const kt = Math.round(S.windSpd * 1.944), dir = Math.round(S.windFrom / 10) * 10 % 360 || 360, gust = WX.gust > 0.3 ? Math.round(kt * (1 + WX.gust)) : 0;
+        return { kt, dir, gust };
+      }
+      // Un message = deux versions du même texte : affichage (chiffres) et parole (chiffres épelés, « degrés », « nœuds »)
+      const T = { n: n => String(n), rwy: r => r, deg: d => p3(d) + '°', kt: k => k + ' kt', hpa: h => h + ' hPa', cs: () => callsign().text, ap: a => apName(a) };
+      const V = { n: n => spell(n), rwy: r => spell(r), deg: d => spell(p3(d)) + ' degrés', kt: k => spell(k) + ' nœuds', hpa: h => spell(h) + ' hectopascals', cs: () => callsign().say, ap: a => apName(a) };
+      const msg = fn => ({ txt: fn(T), say: fn(V) });
+      const wind = f => { const w = windParts(); return w.kt < 2 ? 'vent calme' : `vent ${f.deg(w.dir)} ${f.kt(w.kt)}` + (w.gust ? `, rafales ${f.kt(w.gust)}` : ''); };
+      function callsign() {
+        const reg = REGS[AC.id];
+        if (reg) return { text: reg, say: reg.replace(/[^A-Za-z0-9]/g, '').split('').map(c => /\d/.test(c) ? DIG[+c] : NATO[c.toUpperCase()]).join(' ') };
+        return { text: AC.name.toUpperCase() + ' 21', say: AC.name + ' deux un' };
+      }
+      const apName = ap => ap.carrier ? 'Porte-avions' : ap.name;
+      const tower = ap => ap.carrier ? 'Contrôle pont d\'envol' : 'Tour de ' + ap.name;
+
+      // ── Voix et file d'émission
+      function addLine(who, txt) {
+        R.lines.push({ who, txt, t: performance.now() }); if (R.lines.length > 5) R.lines.shift(); renderLog();
+      }
+      function renderLog() {
+        const el = $('atcLog'), now = performance.now(); R.lines = R.lines.filter(l => now - l.t < 16000);
+        el.innerHTML = '';
+        for (const l of R.lines) { const d = document.createElement('div'); d.className = l.who === 'tower' ? 'tw' : 'pl'; const b = document.createElement('b'); b.textContent = l.who === 'tower' ? 'TOUR' : 'VOUS'; d.append(b, document.createTextNode(l.txt)); el.appendChild(d); }
+        el.classList.toggle('on', AU.subs && R.lines.length > 0);
+      }
+      function pump() {
+        if (R.busy || !R.queue.length) return;
+        const m = R.queue.shift(); R.busy = true; addLine(m.who, m.txt);
+        let ended = false;
+        const done = () => { if (ended) return; ended = true; R.busy = false; Snd.radioOn = false; Snd.squelch(); if (m.cb) m.cb(); setTimeout(pump, 400); };
+        Snd.init(); Snd.radioOn = true; Snd.squelch();
+        if (DB.settings.sound && AU.tts && TTS && R.voices.length) {
+          const u = new SpeechSynthesisUtterance(m.say), tw = m.who === 'tower';
+          u.lang = 'fr-FR'; u.voice = R.voices[tw ? 0 : Math.min(1, R.voices.length - 1)]; u.rate = tw ? 1.02 : 1.12; u.pitch = tw ? 0.8 : 1.15; u.volume = clamp(AU.radio * AU.master, 0, 1);
+          u.onend = u.onerror = done;
+          try { speechSynthesis.speak(u); } catch (e) { done(); return; }
+          setTimeout(done, 22000);                                           // filet de sécurité (synthèse bloquée)
+        } else {
+          const dur = clamp(m.say.length * 0.055, 1.2, 9);
+          if (DB.settings.sound) Snd.babble(dur);
+          setTimeout(done, dur * 1000 + 150);
+        }
+      }
+      const speak = (who, m, cb) => { R.queue.push({ who, txt: m.txt, say: m.say, cb }); pump(); };
+      // Échange : appel du pilote, puis réponse de la tour (et lecture en retour du pilote si demandé)
+      function exchange(call, reply, back) {
+        speak('pilot', call);
+        speak('tower', reply, back ? () => speak('pilot', back) : undefined);
+      }
+      function autoTower(m, back) {
+        const now = performance.now(); if (now - R.lastAuto < 6000 || (window.SKYWAY_COMBAT && SKYWAY_COMBAT.state.active)) return false;
+        R.lastAuto = now; speak('tower', m, back ? () => speak('pilot', back) : undefined); return true;
+      }
+
+      // ── Demandes du pilote
+      function request(kind) {
+        Snd.init();
+        const ap = nearApt();
+        if (!ap) { speak('pilot', msg(f => `Appel général, ${f.cs()}, demande contrôle.`)); speak('tower', { txt: 'Aucune tour de contrôle à portée radio.', say: 'Aucune tour de contrôle à portée radio.' }); return; }
+        const d = Math.hypot(ap.x - plane.position.x, ap.z - plane.position.z), cs = f => f.cs(), tw = tower(ap);
+        const alt = Math.round(S.alt / 10) * 10;
+        if (kind === 'dep') {
+          if (!S.onGround) return exchange(msg(f => `${tw}, ${cs(f)}, demande consignes.`), msg(f => `${cs(f)}, ${tw}, négatif, vous êtes en vol.`));
+          if (d > 3000) return exchange(msg(f => `${tw}, ${cs(f)}, prêt au départ.`), msg(f => `${cs(f)}, ${tw}, vous n'êtes pas sur l'aérodrome.`));
+          if (Math.abs(S.roll) > 15) return exchange(msg(f => `${tw}, ${cs(f)}, demande décollage.`), msg(f => `${cs(f)}, ${tw}, vous roulez déjà : décollage à votre initiative.`));
+          R.cleared = 'dep'; R.dep = true;
+          const rw = rwyOf(ap, 'dep');
+          if (ap.carrier) return exchange(msg(f => `${tw}, ${cs(f)}, sur la catapulte, prêt.`), msg(f => `${cs(f)}, ${tw}, ${wind(f)}, autorisé catapultage. Bon vol.`), msg(f => `Autorisé catapultage, ${cs(f)}.`));
+          return exchange(msg(f => `${tw}, ${cs(f)}, au point d'attente piste ${f.rwy(rw)}, prêt au départ.`),
+            msg(f => `${cs(f)}, ${tw}, ${wind(f)}, QNH ${f.hpa(qnh())}, piste ${f.rwy(rw)}, autorisé décollage.`), msg(f => `Autorisé décollage piste ${f.rwy(rw)}, ${cs(f)}.`));
+        }
+        if (kind === 'appr') {
+          if (S.onGround) return exchange(msg(f => `${tw}, ${cs(f)}, demande approche.`), msg(f => `${cs(f)}, ${tw}, vous êtes au sol : demandez le départ.`));
+          R.cleared = 'appr'; NAV.lock = ap;
+          const brg = compass8(compassOf(plane.position.x - ap.x, plane.position.z - ap.z)), rw = rwyOf(ap, 'appr');
+          if (ap.carrier) return exchange(msg(f => `${tw}, ${cs(f)}, à ${km(d)} kilomètres au ${brg}, ${alt} mètres, demande appontage.`), msg(f => `${cs(f)}, ${tw}, ${wind(f)}, cap sur le pont, descente à 3,5 degrés, rappelez en finale.`));
+          return exchange(msg(f => `${tw}, ${cs(f)}, à ${km(d)} kilomètres au ${brg}, ${alt} mètres, demande consignes d'approche.`),
+            msg(f => `${cs(f)}, ${tw}, piste ${f.rwy(rw)} en service, ${wind(f)}, QNH ${f.hpa(qnh())}, rappelez en finale.`), msg(f => `Piste ${f.rwy(rw)}, je rappelle en finale, ${cs(f)}.`));
+        }
+        if (kind === 'wx') {
+          const base = Math.round(MAP.clouds[0] / 50) * 50, t = Math.round(15 - 6.5 * ap.y / 1000);
+          return exchange(msg(f => `${tw}, ${cs(f)}, demande la météo.`),
+            msg(f => `${cs(f)}, ${tw}, ${wind(f)}, visibilité supérieure à dix kilomètres, nuages épars à ${f.n(base)} mètres, température ${t} degrés, QNH ${f.hpa(qnh())}.`));
+        }
+        if (kind === 'pos') {
+          const brg = compass8(compassOf(plane.position.x - ap.x, plane.position.z - ap.z)), to = Math.round(compassOf(ap.x - plane.position.x, ap.z - plane.position.z));
+          return exchange(msg(f => `${tw}, ${cs(f)}, demande ma position.`), msg(f => `${cs(f)}, ${tw}, vous êtes à ${km(d)} kilomètres au ${brg} de ${apName(ap)}, cap ${f.deg(to)} pour rejoindre.`));
+        }
+        if (kind === 'mayday') {
+          R.cleared = 'appr'; NAV.lock = ap;
+          const to = Math.round(compassOf(ap.x - plane.position.x, ap.z - plane.position.z)), rw = rwyOf(ap, 'appr');
+          return exchange(msg(f => `Mayday, Mayday, Mayday, ${tw}, ${cs(f)}, détresse, demande atterrissage d'urgence.`),
+            msg(f => `${cs(f)}, ${tw}, Mayday reçu. ` + (ap.carrier ? '' : `Piste ${f.rwy(rw)} à votre disposition, `) + `${wind(f)}, cap ${f.deg(to)}, ${km(d)} kilomètres. Les secours sont alertés.`));
+        }
+      }
+
+      // ── Appels automatiques de la tour
+      function tick() {
+        if (S.crashed || RP.active || S.paused) return;
+        if (R.dep && !S.onGround && S.agl > 40) { R.dep = false; R.cleared = null; const ap = nearApt(); if (ap) autoTower(msg(f => `${f.cs()}, ${tower(ap)}, décollage noté, quittez la fréquence, bon vol.`)); }
+        if (ILS.on && ILS.ap && ILS.d < 5000 && S.agl < 1200 && R.landFor !== ILS.ap.id + ILS.e) {
+          const ap = ILS.ap, rw = ap.carrier ? null : rwyNum(ILS.e < 0 ? runwayHdg(ap) : runwayHdg(ap) + 180);
+          if (autoTower(ap.carrier ? msg(f => `${f.cs()}, ${tower(ap)}, ${wind(f)}, pont dégagé, autorisé appontage.`) : msg(f => `${f.cs()}, ${tower(ap)}, piste ${f.rwy(rw)} dégagée, ${wind(f)}, autorisé atterrissage.`),
+            ap.carrier ? msg(f => `Autorisé appontage, ${f.cs()}.`) : msg(f => `Autorisé atterrissage piste ${f.rwy(rw)}, ${f.cs()}.`))) R.landFor = ap.id + ILS.e;
+        }
+        if (!ILS.on) { R.gearWarn = false; if (S.airborne && S.agl > 800) R.landFor = ''; }
+        if (ILS.on && AC.retract && S.gearTarget === 0 && ILS.d < 3500 && S.agl < 450 && !R.gearWarn) { R.gearWarn = autoTower(msg(f => `${f.cs()}, ${tower(ILS.ap)}, vérifiez train sorti et verrouillé.`)); }
+        if (R.landed && S.onGround && S.roll < 20) {
+          R.landed = false; const ap = nearApt(); if (ap) autoTower(msg(f => `${f.cs()}, ${tower(ap)}, dégagez la piste, bienvenue à ${apName(ap)}.`));
+        }
+        if (R.open) renderBox();
+      }
+      setInterval(tick, 700); setInterval(renderLog, 1000);
+      const _td = onTouchdown; onTouchdown = function (...a) { R.landed = true; return _td.apply(this, a); };
+
+      // ── Interface : bouton de la barre, touche 0, panneau de demandes
+      const BTNS = [['dep', 'Décollage'], ['appr', 'Approche'], ['wx', 'Météo'], ['pos', 'Position'], ['mayday', 'MAYDAY']];
+      function renderBox() {
+        const ap = nearApt(), g = S.onGround;
+        $('atcFreq').textContent = ap ? (118 + (strHash(ap.id) % 16) * 0.05 + 0.1).toFixed(2).replace('.', ',') : '—';
+        setText('atcWho', ap ? `${tower(ap)} · ${km(Math.hypot(ap.x - plane.position.x, ap.z - plane.position.z))} km` : 'Aucune tour à portée radio');
+        const box = $('atcBtns'); if (!box.children.length) {
+          for (const [k, t] of BTNS) { const b = document.createElement('button'); b.textContent = t; b.dataset.k = k; if (k === 'mayday') b.className = 'mayday'; box.appendChild(b); }
+          box.onclick = e => { const k = e.target.dataset && e.target.dataset.k; if (k) request(k); };
+        }
+        for (const b of box.children) b.disabled = !ap || (b.dataset.k === 'dep' && !g) || (b.dataset.k === 'appr' && g) || (b.dataset.k === 'mayday' && g);
+      }
+      function toggle(on) {
+        R.open = on == null ? !R.open : !!on; $('atcBox').classList.toggle('open', R.open);
+        if (R.open) { Snd.init(); renderBox(); }
+      }
+      const btn = document.createElement('button');
+      btn.className = 'tbtn'; btn.id = 'atcBtn'; btn.title = 'Radio · tour de contrôle';
+      btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 19l5-5M12 12a2 2 0 1 0 0-.01M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9M4.5 4.5a10 10 0 0 0 0 15M19.5 4.5a10 10 0 0 1 0 15" /></svg><span>Radio</span><kbd>0</kbd>';
+      const helpBtn = document.querySelector('#topbar .tbtn[data-act="help"]');
+      helpBtn.parentNode.insertBefore(btn, helpBtn);
+      btn.onclick = () => { toggle(); btn.blur(); };
+      $('atcX').onclick = () => toggle(false);
+      const helpTable = document.querySelector('#help table');
+      if (helpTable) { const tr = document.createElement('tr'); tr.innerHTML = '<td><kbd>0</kbd></td><td>Radio · tour de contrôle</td>'; helpTable.appendChild(tr); }
+      addEventListener('keydown', e => {
+        const tag = (e.target && e.target.tagName) || '';
+        if (e.repeat || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || RP.active || anyModal()) return;
+        if (keyId(e) === '0') toggle();
+      });
+      window.SKYWAY_RADIO = {
+        toggle, request, settingsChanged() { if (!AU.tts && TTS) speechSynthesis.cancel(); renderLog(); },
+        _test: { R, nearApt, msg, callsign, queue: R.queue, rwyOf, qnh }
+      };
     })();
   </script>
 

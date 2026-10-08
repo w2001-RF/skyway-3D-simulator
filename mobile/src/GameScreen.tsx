@@ -112,6 +112,7 @@ export default function GameScreen() {
         domStorageEnabled
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
+        mediaCapturePermissionGrantType="grant"   // micro du mode En ligne (la page ne le demande qu'après « Rejoindre »)
         allowsBackForwardNavigationGestures={false}
         bounces={false}
         overScrollMode="never"
