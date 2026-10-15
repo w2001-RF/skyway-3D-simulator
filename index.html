@@ -1015,6 +1015,103 @@
       display: flex
     }
 
+    #boot {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(ellipse at 50% 40%, #12243a 0%, #060a10 70%);
+      color: #e6eef7;
+      font-family: 'Rajdhani', sans-serif;
+      transition: opacity .5s ease
+    }
+
+    #boot.off {
+      opacity: 0;
+      pointer-events: none
+    }
+
+    .bootBox {
+      width: min(440px, calc(100vw - 32px));
+      text-align: center
+    }
+
+    .bootTitle {
+      font: 700 44px 'Rajdhani', sans-serif;
+      letter-spacing: .35em;
+      padding-left: .35em
+    }
+
+    .bootSub {
+      font: 500 14px 'JetBrains Mono', monospace;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      opacity: .6;
+      margin-bottom: 28px
+    }
+
+    .bootBar {
+      height: 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .1);
+      overflow: hidden;
+      position: relative
+    }
+
+    .bootBar i {
+      display: block;
+      height: 100%;
+      width: 0;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #1fa8d6, #5ee0ff);
+      transition: width .35s ease
+    }
+
+    /* Reflet animé (compositeur) : continue de bouger pendant la génération synchrone du monde */
+    .bootBar::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 35%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .45), transparent);
+      animation: bootSweep 1.2s linear infinite
+    }
+
+    @keyframes bootSweep {
+      from { transform: translateX(-100%) }
+      to { transform: translateX(300%) }
+    }
+
+    .bootRow {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      font: 500 13px 'JetBrains Mono', monospace;
+      text-align: left;
+      opacity: .85
+    }
+
+    .bootRow b {
+      font-weight: 600;
+      color: #5ee0ff
+    }
+
+    #boot.err .bootBar i {
+      background: #e0524a
+    }
+
+    #boot.err .bootBar::after {
+      display: none
+    }
+
+    #boot.err #bootMsg {
+      color: #ff9d96
+    }
+
     .seg button.on {
       background: var(--cyan);
       color: #04121c;
@@ -2082,10 +2179,43 @@
   <div id="toasts"></div>
   <div id="loading">Génération de la carte…</div>
 
+  <!-- Écran de démarrage : visible dès le premier affichage, pendant le téléchargement du moteur 3D puis la génération du monde -->
+  <div id="boot" role="status" aria-live="polite">
+    <div class="bootBox">
+      <div class="bootTitle">SKYWAY</div>
+      <div class="bootSub">Simulateur de vol</div>
+      <div class="bootBar"><i id="bootFill"></i></div>
+      <div class="bootRow"><span id="bootMsg">Chargement du moteur 3D…</span><b id="bootPct">0 %</b></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const fill = document.getElementById('bootFill'), msg = document.getElementById('bootMsg'), pct = document.getElementById('bootPct'), box = document.getElementById('boot');
+      let cur = 0, done = false;
+      window.bootP = function (p, m) {
+        if (done) return;
+        cur = Math.max(cur, p); fill.style.width = cur + '%'; pct.textContent = Math.round(cur) + ' %';
+        if (m) msg.textContent = m;
+      };
+      function fail(m) { if (done) return; box.classList.add('err'); msg.textContent = m; }
+      addEventListener('error', e => {
+        if (e.target && e.target.tagName === 'SCRIPT') fail('Échec du téléchargement d’un module (' + (e.target.src || '').split('/').slice(2, 4).join('/') + '). Vérifiez la connexion puis rechargez la page.');
+        else if (!done) fail('Erreur au démarrage : ' + (e.message || 'inconnue'));
+      }, true);
+      document.addEventListener('DOMContentLoaded', () => {
+        if (box.classList.contains('err')) return;
+        window.bootP(100, 'Prêt au décollage');
+        setTimeout(() => { done = true; box.classList.add('off'); setTimeout(() => box.remove(), 600); }, 250);
+      });
+    })();
+  </script>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>bootP(30, 'Moteur 3D chargé · chargement des modules…')</script>
   <!-- Exemples officiels three r128 (même version) : fusion des pièces d'avion, boîtes arrondies -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/RoundedBoxGeometry.js"></script>
+  <script>bootP(50, 'Génération du monde, des textures et des avions…')</script>
   <script>
     'use strict';
     // ════════════════════════ Gestion des couleurs (rendu linéaire, sortie sRGB + ACES) ════════════════════════
