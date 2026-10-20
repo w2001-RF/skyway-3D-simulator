@@ -32,7 +32,8 @@ The game is one file: `index.html`.
 4. **Online extension**: `<style>`, `#olModal`, `<script>` IIFE (see §9b). It loads after the combat extension and wraps the already-wrapped functions.
 5. **School & transport extension**: `<style>`, `#msModal`, `#tutPanel`, `#ctPanel`, `<script>` IIFE (see §9c). It uses `window.SKYWAY_COMBAT` (API exported by the combat extension).
 6. **Radio extension** (control tower ↔ pilot, §9e). Loads before the platform extension; wraps `onTouchdown`.
-7. **Platform extension**, last before `</body>`: `<script>` IIFE for web ads and the mobile-app bridge (see §9d). It wraps on top of everything else.
+7. **Design extension** (`<style>` + `<script>` before the platform extension): Apple-style interface pass (§8, « Interface design »).
+8. **Platform extension**, last before `</body>`: `<script>` IIFE for web ads and the mobile-app bridge (see §9d). It wraps on top of everything else.
 
 Site files next to `index.html` (static, served by GitHub Pages; the game never loads them at runtime):
 - `guide.html` (French player guide: features, aircraft, maps, controls, ILS/PAPI, missions, FAQ with `FAQPage` JSON-LD, two AdSense display slots) and `privacy.html` (privacy policy required by AdSense, AdMob and the app stores).
@@ -401,6 +402,11 @@ Above `vfeOf(AC)` (= `AC.vfe` or 1.75·stall) the HUD shows « VITESSE VOLETS »
 - Particles: two `FxPool`s (`FXG.smoke` normal blending, `FXG.fire` additive, 1500 / 800 slots, half on Bas) = `THREE.Points` with a small shader (size in world metres, colours in display space, no tone mapping). `fxUpdate(dt)` runs every frame.
 - `crashCam`: orbit around the wreck, pulling back, with impact shake, replaces every camera mode while `S.crashed && CRASHFX.active`. The dialog waits for the impact + 1.8 s (7 s at most).
 - r128 has no `Quaternion.random()`; `Snd.tone` is a method (the cockpit filter is `Snd.lp`).
+
+**Interface design (Design extension; skill `.claude/skills/apple-design`)**
+- Press feedback on pointer-down through the individual CSS property `scale` (`.btn`, `.tbtn`, tabs, touch buttons `.tbt.down`), so it never clashes with `transform`. Translucent materials: `.glass`, `.modal` scrim (blur follows `--sc`), toasts; `inset` top highlight. Springs in CSS are `linear()` easings (`--spring` no overshoot, `--spring-b` slight bounce for toasts); modal cards enter with `apSheet`.
+- Touch sheets: on touch devices a modal card follows the finger 1:1 when its `.chead` is dragged (`pointerdown` / `setPointerCapture`, 4 px hysteresis, rubber band upward, 100 ms velocity history). On release `project(v)` (decay 0.998) decides: past 45 % of the height closes (`closeAllModals`), otherwise it springs back; `spring(from, to, v0, damping, response, …)` is a rAF integrator that keeps the release velocity and can be grabbed again mid-flight (`live` WeakMap). The entry animation is switched off while the modal stays open (otherwise clearing the inline style replays it) and a MutationObserver restores it on close. `#dialog` (crash) is not draggable. `window.SKYWAY_DESIGN = {spring, project, rubber}`.
+- `prefers-reduced-motion` (cross-fades only, no scale), `prefers-reduced-transparency` (no blur, near-opaque), `prefers-contrast: more` (stronger lines, solid backgrounds). `body.touch #touchPad` is z-index 19, below the modals (20).
 
 **Cameras**
 - `chaseCam` (Poursuite): critically damped spring on the camera *offset* (so no lag at high speed), look-ahead, follows 28 % of the bank, FOV 60→82 with speed (+7 with afterburner), shake at high speed or high g.
